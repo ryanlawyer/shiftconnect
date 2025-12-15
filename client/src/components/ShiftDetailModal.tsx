@@ -13,7 +13,8 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { format } from "date-fns";
 import type { ShiftStatus } from "./ShiftCard";
 import type { Area } from "@shared/schema";
 
@@ -64,6 +65,21 @@ export function ShiftDetailModal({
   const [sendNotification, setSendNotification] = useState(true);
   const config = statusConfig[shift.status];
   const displayAreaName = shift.area?.name || shift.areaName || "Unassigned";
+
+  const sortedInterestedEmployees = useMemo(() => {
+    return [...shift.interestedEmployees].sort((a, b) => {
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    });
+  }, [shift.interestedEmployees]);
+
+  const formatInterestTimestamp = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      return format(date, "MMM d, yyyy 'at' h:mm a");
+    } catch {
+      return timestamp;
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -119,25 +135,34 @@ export function ShiftDetailModal({
               <Users className="h-4 w-4" />
               <p className="text-sm font-medium">Interested Employees ({shift.interestedEmployees.length})</p>
             </div>
-            {shift.interestedEmployees.length === 0 ? (
+            {sortedInterestedEmployees.length === 0 ? (
               <p className="text-sm text-muted-foreground">No one has expressed interest yet.</p>
             ) : (
               <div className="space-y-2">
-                {shift.interestedEmployees.map((emp) => (
+                {sortedInterestedEmployees.map((emp, index) => (
                   <div
                     key={emp.id}
                     className="flex items-center justify-between p-2 rounded-md bg-muted/50"
                     data-testid={`interested-employee-${emp.id}`}
                   >
                     <div className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="text-xs">
-                          {emp.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="relative">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="text-xs">
+                            {emp.name.split(' ').map(n => n[0]).join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        {index === 0 && (
+                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-medium">
+                            1
+                          </span>
+                        )}
+                      </div>
                       <div>
                         <p className="text-sm font-medium">{emp.name}</p>
-                        <p className="text-xs text-muted-foreground">{emp.timestamp}</p>
+                        <p className="text-xs text-muted-foreground" data-testid={`timestamp-${emp.id}`}>
+                          Responded: {formatInterestTimestamp(emp.timestamp)}
+                        </p>
                       </div>
                     </div>
                     {isAdmin && (
