@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,32 +12,67 @@ import {
 } from "@/components/ui/select";
 import { EmployeeCard, type EmployeeRole } from "@/components/EmployeeCard";
 import { SMSComposePanel, type Recipient } from "@/components/SMSComposePanel";
-import { Search, Send, UserPlus, Loader2 } from "lucide-react";
+import { Search, Send, UserPlus, Loader2, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { Employee, Area } from "@shared/schema";
 
 type EmployeeWithAreas = Employee & { areas: Area[] };
 
+interface EmployeeFormData {
+  name: string;
+  phone: string;
+  email: string;
+  position: string;
+  status: string;
+  smsOptIn: boolean;
+  areaIds: string[];
+}
+
+const positions = [
+  "Direct Support Professional",
+  "Certified Nursing Assistant",
+  "Licensed Practical Nurse",
+  "Registered Nurse",
+  "House Manager",
+  "Program Supervisor",
+  "Administrator",
+];
+
 const roles = ["All Roles", "Admin", "Supervisor", "Employee"];
 
 export default function Employees() {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("All Roles");
   const [areaFilter, setAreaFilter] = useState("All Areas");
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [directSmsEmployee, setDirectSmsEmployee] = useState<string | null>(null);
-  const [editAreasEmployee, setEditAreasEmployee] = useState<EmployeeWithAreas | null>(null);
-  const [selectedAreaIds, setSelectedAreaIds] = useState<string[]>([]);
+  
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<EmployeeWithAreas | null>(null);
+  const [formData, setFormData] = useState<EmployeeFormData>({
+    name: "",
+    phone: "",
+    email: "",
+    position: "",
+    status: "active",
+    smsOptIn: true,
+    areaIds: [],
+  });
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const { data: employees = [], isLoading: loadingEmployees } = useQuery<EmployeeWithAreas[]>({
     queryKey: ["/api/employees"],
@@ -47,15 +82,115 @@ export default function Employees() {
     queryKey: ["/api/areas"],
   });
 
-  const updateAreasMutation = useMutation({
-    mutationFn: async ({ employeeId, areaIds }: { employeeId: string; areaIds: string[] }) => {
-      return apiRequest("PUT", `/api/employees/${employeeId}/areas`, { areaIds });
+  const createEmployeeMutation = useMutation({
+    mutationFn: async (data: Omit<EmployeeFormData, "areaIds"> & { areaIds?: string[] }) => {
+      const { areaIds, ...employeeData } = data;
+      const response = await apiRequest("POST", "/api/employees", employeeData);
+      const newEmployee = await response.json();
+      if (areaIds && areaIds.length > 0) {
+        await apiRequest("PUT", `/api/employees/${newEmployee.id}/areas`, { areaIds });
+      }
+      return newEmployee;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      setEditAreasEmployee(null);
+      setEditDialogOpen(false);
+      resetForm();
+      toast({ title: "Employee created successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to create employee", variant: "destructive" });
     },
   });
+
+  const updateEmployeeMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: EmployeeFormData }) => {
+      const { areaIds, ...employeeData } = data;
+      await apiRequest("PATCH", `/api/employees/${id}`, { ...employeeData, areaIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      setEditDialogOpen(false);
+      resetForm();
+      toast({ title: "Employee updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update employee", variant: "destructive" });
+    },
+  });
+
+  const deleteEmployeeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/employees/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      setEditDialogOpen(false);
+      setDeleteConfirmOpen(false);
+      resetForm();
+      toast({ title: "Employee deleted successfully" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete employee", variant: "destructive" });
+    },
+  });
+
+  const resetForm = () => {
+    setEditingEmployee(null);
+    setFormData({
+      name: "",
+      phone: "",
+      email: "",
+      position: "",
+      status: "active",
+      smsOptIn: true,
+      areaIds: [],
+    });
+  };
+
+  const openCreateDialog = () => {
+    resetForm();
+    setEditDialogOpen(true);
+  };
+
+  const openEditDialog = (id: string) => {
+    const emp = employees.find(e => e.id === id);
+    if (emp) {
+      setEditingEmployee(emp);
+      setFormData({
+        name: emp.name,
+        phone: emp.phone,
+        email: emp.email || "",
+        position: emp.position,
+        status: emp.status,
+        smsOptIn: emp.smsOptIn,
+        areaIds: emp.areas.map(a => a.id),
+      });
+      setEditDialogOpen(true);
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!formData.name.trim() || !formData.phone.trim() || !formData.position) {
+      toast({ title: "Please fill in all required fields", variant: "destructive" });
+      return;
+    }
+    
+    if (editingEmployee) {
+      updateEmployeeMutation.mutate({ id: editingEmployee.id, data: formData });
+    } else {
+      createEmployeeMutation.mutate(formData);
+    }
+  };
+
+  const toggleAreaSelection = (areaId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      areaIds: prev.areaIds.includes(areaId)
+        ? prev.areaIds.filter(id => id !== areaId)
+        : [...prev.areaIds, areaId],
+    }));
+  };
 
   const filteredEmployees = employees.filter((emp) => {
     const matchesSearch = emp.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -96,37 +231,14 @@ export default function Employees() {
     );
   };
 
-  const handleEditAreas = (id: string) => {
-    const emp = employees.find(e => e.id === id);
-    if (emp) {
-      setEditAreasEmployee(emp);
-      setSelectedAreaIds(emp.areas.map(a => a.id));
-    }
-  };
-
-  const handleSaveAreas = () => {
-    if (editAreasEmployee) {
-      updateAreasMutation.mutate({
-        employeeId: editAreasEmployee.id,
-        areaIds: selectedAreaIds,
-      });
-    }
-  };
-
-  const toggleAreaSelection = (areaId: string) => {
-    setSelectedAreaIds(prev =>
-      prev.includes(areaId)
-        ? prev.filter(id => id !== areaId)
-        : [...prev, areaId]
-    );
-  };
-
   const mapPositionToRole = (position: string): EmployeeRole => {
     const lowerPosition = position.toLowerCase();
     if (lowerPosition.includes("admin") || lowerPosition.includes("manager")) return "admin";
     if (lowerPosition.includes("supervisor") || lowerPosition.includes("lead")) return "supervisor";
     return "employee";
   };
+
+  const isPending = createEmployeeMutation.isPending || updateEmployeeMutation.isPending;
 
   if (loadingEmployees || loadingAreas) {
     return (
@@ -141,7 +253,7 @@ export default function Employees() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Employees</h1>
-          <p className="text-muted-foreground">Manage employees and send notifications</p>
+          <p className="text-muted-foreground">Manage staff and send notifications</p>
         </div>
         <div className="flex items-center gap-2">
           {selectedEmployees.length > 0 && (
@@ -150,7 +262,7 @@ export default function Employees() {
               SMS ({selectedEmployees.length})
             </Button>
           )}
-          <Button variant="outline" data-testid="button-add-employee">
+          <Button onClick={openCreateDialog} data-testid="button-add-employee">
             <UserPlus className="h-4 w-4 mr-2" />
             Add Employee
           </Button>
@@ -183,7 +295,7 @@ export default function Employees() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="All Areas">All Areas</SelectItem>
+            <SelectItem value="All Areas">All Placement Types</SelectItem>
             {areas.map((area) => (
               <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
             ))}
@@ -210,8 +322,8 @@ export default function Employees() {
                 phone={emp.phone}
                 areas={emp.areas}
                 onSendSMS={handleSendSMS}
-                onViewProfile={(id) => console.log("View profile:", id)}
-                onEditAreas={handleEditAreas}
+                onViewProfile={openEditDialog}
+                onEditAreas={openEditDialog}
               />
             </div>
           ))}
@@ -250,54 +362,178 @@ export default function Employees() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editAreasEmployee} onOpenChange={(open) => {
-        if (!open) setEditAreasEmployee(null);
+      <Dialog open={editDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          resetForm();
+        }
+        setEditDialogOpen(open);
       }}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Assign Areas to {editAreasEmployee?.name}</DialogTitle>
+            <DialogTitle>{editingEmployee ? "Edit Employee" : "Add New Employee"}</DialogTitle>
+            <DialogDescription>
+              {editingEmployee 
+                ? "Update employee information and placement assignments." 
+                : "Add a new staff member to your team."}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Select the areas this employee can be notified about for shift availability.
-            </p>
+          
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="name">Full Name *</Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Enter full name"
+                data-testid="input-employee-name"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone Number *</Label>
+              <Input
+                id="phone"
+                value={formData.phone}
+                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                placeholder="+1 (555) 123-4567"
+                data-testid="input-employee-phone"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email">Email (Optional)</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="email@example.com"
+                data-testid="input-employee-email"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="position">Position *</Label>
+              <Select 
+                value={formData.position} 
+                onValueChange={(value) => setFormData(prev => ({ ...prev, position: value }))}
+              >
+                <SelectTrigger data-testid="select-employee-position">
+                  <SelectValue placeholder="Select position" />
+                </SelectTrigger>
+                <SelectContent>
+                  {positions.map((pos) => (
+                    <SelectItem key={pos} value={pos}>{pos}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Status</Label>
+              <Select 
+                value={formData.status} 
+                onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}
+              >
+                <SelectTrigger data-testid="select-employee-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label>SMS Notifications</Label>
+                <p className="text-xs text-muted-foreground">
+                  Receive shift availability notifications via text
+                </p>
+              </div>
+              <Switch
+                checked={formData.smsOptIn}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, smsOptIn: checked }))}
+                data-testid="switch-sms-optin"
+              />
+            </div>
+
             <div className="space-y-3">
-              {areas.map((area) => (
-                <div key={area.id} className="flex items-start gap-3">
-                  <Checkbox
-                    id={`area-${area.id}`}
-                    checked={selectedAreaIds.includes(area.id)}
-                    onCheckedChange={() => toggleAreaSelection(area.id)}
-                    data-testid={`checkbox-area-${area.id}`}
-                  />
-                  <div className="grid gap-0.5">
-                    <Label htmlFor={`area-${area.id}`} className="font-medium cursor-pointer">
+              <Label>Placement Assignments</Label>
+              <p className="text-xs text-muted-foreground">
+                Select which placement types this employee can work in
+              </p>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {areas.map((area) => (
+                  <div key={area.id} className="flex items-center gap-3">
+                    <Checkbox
+                      id={`edit-area-${area.id}`}
+                      checked={formData.areaIds.includes(area.id)}
+                      onCheckedChange={() => toggleAreaSelection(area.id)}
+                      data-testid={`checkbox-area-${area.id}`}
+                    />
+                    <Label htmlFor={`edit-area-${area.id}`} className="cursor-pointer text-sm">
                       {area.name}
                     </Label>
-                    {area.description && (
-                      <p className="text-xs text-muted-foreground">{area.description}</p>
-                    )}
                   </div>
-                </div>
-              ))}
-              {areas.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No areas configured. Add areas in Settings first.
-                </p>
-              )}
+                ))}
+                {areas.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No placement types configured. Add them in Settings first.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
+
+          <DialogFooter className="flex flex-row items-center justify-between gap-2 sm:justify-between">
+            <div>
+              {editingEmployee && (
+                <Button 
+                  variant="destructive" 
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  data-testid="button-delete-employee"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)} data-testid="button-cancel-employee">
+                Cancel
+              </Button>
+              <Button onClick={handleSubmit} disabled={isPending} data-testid="button-save-employee">
+                {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {editingEmployee ? "Save Changes" : "Add Employee"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Employee</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {editingEmployee?.name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditAreasEmployee(null)} data-testid="button-cancel-areas">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
               Cancel
             </Button>
             <Button 
-              onClick={handleSaveAreas} 
-              disabled={updateAreasMutation.isPending}
-              data-testid="button-save-areas"
+              variant="destructive" 
+              onClick={() => editingEmployee && deleteEmployeeMutation.mutate(editingEmployee.id)}
+              disabled={deleteEmployeeMutation.isPending}
+              data-testid="button-confirm-delete"
             >
-              {updateAreasMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Save Areas
+              {deleteEmployeeMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Delete Employee
             </Button>
           </DialogFooter>
         </DialogContent>
