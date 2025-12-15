@@ -143,10 +143,34 @@ export async function registerRoutes(
   });
 
   app.post("/api/shifts", async (req, res) => {
-    const parsed = insertShiftSchema.safeParse(req.body);
+    const { sendNotification = false, ...shiftData } = req.body;
+    const parsed = insertShiftSchema.safeParse(shiftData);
     if (!parsed.success) return res.status(400).json({ error: parsed.error });
-    const shift = await storage.createShift(parsed.data);
-    res.status(201).json(shift);
+    
+    try {
+      const shift = await storage.createShift(parsed.data);
+      
+      let notificationRecipients: { id: string; name: string; phone: string }[] = [];
+      
+      if (sendNotification === true) {
+        const area = await storage.getArea(shift.areaId);
+        if (area && area.smsEnabled) {
+          const areaEmployees = await storage.getAreaEmployees(shift.areaId);
+          notificationRecipients = areaEmployees
+            .filter(e => e.status === "active" && e.smsOptIn)
+            .map(e => ({ id: e.id, name: e.name, phone: e.phone }));
+        }
+      }
+      
+      res.status(201).json({
+        ...shift,
+        notificationRecipients,
+        notificationCount: notificationRecipients.length,
+      });
+    } catch (error) {
+      console.error("Error creating shift:", error);
+      res.status(500).json({ error: "Failed to create shift" });
+    }
   });
 
   app.patch("/api/shifts/:id", async (req, res) => {

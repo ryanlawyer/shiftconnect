@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,45 +10,59 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { EmployeeCard, type EmployeeCardProps, type EmployeeRole } from "@/components/EmployeeCard";
+import { EmployeeCard, type EmployeeRole } from "@/components/EmployeeCard";
 import { SMSComposePanel, type Recipient } from "@/components/SMSComposePanel";
-import { Search, Send, UserPlus } from "lucide-react";
+import { Search, Send, UserPlus, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import type { Employee, Area } from "@shared/schema";
 
-// todo: remove mock functionality
-const mockEmployees: (EmployeeCardProps & { selected?: boolean })[] = [
-  { id: "1", name: "John Smith", role: "supervisor", department: "Emergency Department", phone: "+1 (555) 123-4567" },
-  { id: "2", name: "Emily Davis", role: "employee", department: "Pediatrics", phone: "+1 (555) 234-5678" },
-  { id: "3", name: "Michael Brown", role: "employee", department: "Intensive Care Unit", phone: "+1 (555) 345-6789" },
-  { id: "4", name: "Sarah Johnson", role: "admin", department: "Administration", phone: "+1 (555) 456-7890" },
-  { id: "5", name: "Lisa Chen", role: "supervisor", department: "Radiology", phone: "+1 (555) 567-8901" },
-  { id: "6", name: "David Wilson", role: "employee", department: "Laboratory", phone: "+1 (555) 678-9012" },
-  { id: "7", name: "Anna Martinez", role: "employee", department: "Emergency Department", phone: "+1 (555) 789-0123" },
-  { id: "8", name: "James Taylor", role: "employee", department: "Surgery", phone: "+1 (555) 890-1234" },
-];
+type EmployeeWithAreas = Employee & { areas: Area[] };
 
 const roles = ["All Roles", "Admin", "Supervisor", "Employee"];
-const departments = ["All Departments", "Emergency Department", "Intensive Care Unit", "Pediatrics", "Radiology", "Laboratory", "Surgery", "Administration"];
 
 export default function Employees() {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("All Roles");
-  const [department, setDepartment] = useState("All Departments");
+  const [areaFilter, setAreaFilter] = useState("All Areas");
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [directSmsEmployee, setDirectSmsEmployee] = useState<string | null>(null);
+  const [editAreasEmployee, setEditAreasEmployee] = useState<EmployeeWithAreas | null>(null);
+  const [selectedAreaIds, setSelectedAreaIds] = useState<string[]>([]);
 
-  const filteredEmployees = mockEmployees.filter((emp) => {
+  const { data: employees = [], isLoading: loadingEmployees } = useQuery<EmployeeWithAreas[]>({
+    queryKey: ["/api/employees"],
+  });
+
+  const { data: areas = [], isLoading: loadingAreas } = useQuery<Area[]>({
+    queryKey: ["/api/areas"],
+  });
+
+  const updateAreasMutation = useMutation({
+    mutationFn: async ({ employeeId, areaIds }: { employeeId: string; areaIds: string[] }) => {
+      return apiRequest("PUT", `/api/employees/${employeeId}/areas`, { areaIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      setEditAreasEmployee(null);
+    },
+  });
+
+  const filteredEmployees = employees.filter((emp) => {
     const matchesSearch = emp.name.toLowerCase().includes(search.toLowerCase()) ||
-                          emp.department.toLowerCase().includes(search.toLowerCase());
-    const matchesRole = role === "All Roles" || emp.role === role.toLowerCase();
-    const matchesDept = department === "All Departments" || emp.department === department;
-    return matchesSearch && matchesRole && matchesDept;
+                          emp.position.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = role === "All Roles" || emp.position.toLowerCase().includes(role.toLowerCase());
+    const matchesArea = areaFilter === "All Areas" || emp.areas.some(a => a.id === areaFilter);
+    return matchesSearch && matchesRole && matchesArea;
   });
 
   const handleSendSMS = (id: string) => {
@@ -57,11 +72,11 @@ export default function Employees() {
 
   const getRecipients = (): Recipient[] => {
     if (directSmsEmployee) {
-      const emp = mockEmployees.find(e => e.id === directSmsEmployee);
+      const emp = employees.find(e => e.id === directSmsEmployee);
       return emp ? [{ id: emp.id, name: emp.name, phone: emp.phone }] : [];
     }
     return selectedEmployees.map(id => {
-      const emp = mockEmployees.find(e => e.id === id)!;
+      const emp = employees.find(e => e.id === id)!;
       return { id: emp.id, name: emp.name, phone: emp.phone };
     });
   };
@@ -80,6 +95,46 @@ export default function Employees() {
         : [...prev, id]
     );
   };
+
+  const handleEditAreas = (id: string) => {
+    const emp = employees.find(e => e.id === id);
+    if (emp) {
+      setEditAreasEmployee(emp);
+      setSelectedAreaIds(emp.areas.map(a => a.id));
+    }
+  };
+
+  const handleSaveAreas = () => {
+    if (editAreasEmployee) {
+      updateAreasMutation.mutate({
+        employeeId: editAreasEmployee.id,
+        areaIds: selectedAreaIds,
+      });
+    }
+  };
+
+  const toggleAreaSelection = (areaId: string) => {
+    setSelectedAreaIds(prev =>
+      prev.includes(areaId)
+        ? prev.filter(id => id !== areaId)
+        : [...prev, areaId]
+    );
+  };
+
+  const mapPositionToRole = (position: string): EmployeeRole => {
+    const lowerPosition = position.toLowerCase();
+    if (lowerPosition.includes("admin") || lowerPosition.includes("manager")) return "admin";
+    if (lowerPosition.includes("supervisor") || lowerPosition.includes("lead")) return "supervisor";
+    return "employee";
+  };
+
+  if (loadingEmployees || loadingAreas) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="loading-employees">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6" data-testid="page-employees">
@@ -123,13 +178,14 @@ export default function Employees() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={department} onValueChange={setDepartment}>
-          <SelectTrigger className="w-[200px]" data-testid="select-department-filter">
+        <Select value={areaFilter} onValueChange={setAreaFilter}>
+          <SelectTrigger className="w-[200px]" data-testid="select-area-filter">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {departments.map((dept) => (
-              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+            <SelectItem value="All Areas">All Areas</SelectItem>
+            {areas.map((area) => (
+              <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -147,12 +203,15 @@ export default function Employees() {
               onClick={() => toggleEmployeeSelection(emp.id)}
             >
               <EmployeeCard
-                {...emp}
-                onSendSMS={(id) => {
-                  // Prevent card selection when clicking SMS button
-                  handleSendSMS(id);
-                }}
+                id={emp.id}
+                name={emp.name}
+                role={mapPositionToRole(emp.position)}
+                position={emp.position}
+                phone={emp.phone}
+                areas={emp.areas}
+                onSendSMS={handleSendSMS}
                 onViewProfile={(id) => console.log("View profile:", id)}
+                onEditAreas={handleEditAreas}
               />
             </div>
           ))}
@@ -188,6 +247,59 @@ export default function Employees() {
               setDirectSmsEmployee(null);
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editAreasEmployee} onOpenChange={(open) => {
+        if (!open) setEditAreasEmployee(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Areas to {editAreasEmployee?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Select the areas this employee can be notified about for shift availability.
+            </p>
+            <div className="space-y-3">
+              {areas.map((area) => (
+                <div key={area.id} className="flex items-start gap-3">
+                  <Checkbox
+                    id={`area-${area.id}`}
+                    checked={selectedAreaIds.includes(area.id)}
+                    onCheckedChange={() => toggleAreaSelection(area.id)}
+                    data-testid={`checkbox-area-${area.id}`}
+                  />
+                  <div className="grid gap-0.5">
+                    <Label htmlFor={`area-${area.id}`} className="font-medium cursor-pointer">
+                      {area.name}
+                    </Label>
+                    {area.description && (
+                      <p className="text-xs text-muted-foreground">{area.description}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {areas.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No areas configured. Add areas in Settings first.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditAreasEmployee(null)} data-testid="button-cancel-areas">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveAreas} 
+              disabled={updateAreasMutation.isPending}
+              data-testid="button-save-areas"
+            >
+              {updateAreasMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Areas
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
