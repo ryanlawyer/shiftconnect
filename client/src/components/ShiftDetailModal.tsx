@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle } from "lucide-react";
 import { useState } from "react";
 import type { ShiftStatus } from "./ShiftCard";
+import type { Area } from "@shared/schema";
 
 export interface InterestedEmployee {
   id: string;
@@ -28,19 +29,20 @@ export interface ShiftDetailModalProps {
   shift: {
     id: string;
     position: string;
-    department: string;
+    area?: Area | null;
+    areaName?: string;
     location: string;
     date: string;
     startTime: string;
     endTime: string;
-    requirements?: string;
+    requirements?: string | null;
     postedBy: string;
     status: ShiftStatus;
     interestedEmployees: InterestedEmployee[];
   };
   isAdmin?: boolean;
   onShowInterest?: (id: string) => void;
-  onAssign?: (shiftId: string, employeeId: string) => void;
+  onAssign?: (shiftId: string, employeeId: string, sendNotification: boolean) => void;
   onMessageEmployee?: (employeeId: string) => void;
 }
 
@@ -61,6 +63,7 @@ export function ShiftDetailModal({
 }: ShiftDetailModalProps) {
   const [sendNotification, setSendNotification] = useState(true);
   const config = statusConfig[shift.status];
+  const displayAreaName = shift.area?.name || shift.areaName || "Unassigned";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,7 +72,9 @@ export function ShiftDetailModal({
           <div className="flex items-start justify-between gap-4">
             <div>
               <DialogTitle className="text-xl">{shift.position}</DialogTitle>
-              <DialogDescription>{shift.department}</DialogDescription>
+              <DialogDescription className="flex items-center gap-2 mt-1">
+                <Badge variant="outline" className="text-xs">{displayAreaName}</Badge>
+              </DialogDescription>
             </div>
             <Badge className={config.className}>{config.label}</Badge>
           </div>
@@ -147,7 +152,7 @@ export function ShiftDetailModal({
                         </Button>
                         <Button
                           size="sm"
-                          onClick={() => onAssign?.(shift.id, emp.id)}
+                          onClick={() => onAssign?.(shift.id, emp.id, sendNotification)}
                           data-testid={`button-assign-${emp.id}`}
                         >
                           <CheckCircle className="h-4 w-4 mr-1" />

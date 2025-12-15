@@ -3,18 +3,20 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MapPin, Clock, Users, Calendar, Hand } from "lucide-react";
+import type { Area } from "@shared/schema";
 
 export type ShiftStatus = "available" | "claimed" | "expired";
 
 export interface ShiftCardProps {
   id: string;
   position: string;
-  department: string;
+  area?: Area | null;
+  areaName?: string;
   location: string;
   date: string;
   startTime: string;
   endTime: string;
-  requirements?: string;
+  requirements?: string | null;
   postedBy: string;
   postedAt: string;
   status: ShiftStatus;
@@ -33,7 +35,8 @@ const statusConfig = {
 export function ShiftCard({
   id,
   position,
-  department,
+  area,
+  areaName,
   location,
   date,
   startTime,
@@ -48,13 +51,18 @@ export function ShiftCard({
   isAdmin = false,
 }: ShiftCardProps) {
   const config = statusConfig[status];
+  const displayAreaName = area?.name || areaName || "Unassigned";
 
   return (
     <Card className="hover-elevate" data-testid={`card-shift-${id}`}>
       <CardHeader className="flex flex-row items-start justify-between gap-4 pb-2">
         <div className="space-y-1">
           <h3 className="text-lg font-medium" data-testid={`text-position-${id}`}>{position}</h3>
-          <p className="text-sm text-muted-foreground">{department}</p>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs" data-testid={`badge-area-${id}`}>
+              {displayAreaName}
+            </Badge>
+          </div>
         </div>
         <Badge className={config.className} data-testid={`badge-status-${id}`}>
           {config.label}

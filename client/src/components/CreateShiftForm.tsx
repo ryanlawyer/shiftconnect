@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,11 +23,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Send } from "lucide-react";
+import { Calendar, Send, Loader2 } from "lucide-react";
+import type { Area } from "@shared/schema";
 
 const formSchema = z.object({
   position: z.string().min(1, "Position is required"),
-  department: z.string().min(1, "Department is required"),
+  areaId: z.string().min(1, "Area is required"),
   location: z.string().min(1, "Location is required"),
   date: z.string().min(1, "Date is required"),
   startTime: z.string().min(1, "Start time is required"),
@@ -42,15 +44,6 @@ export interface CreateShiftFormProps {
   onCancel?: () => void;
 }
 
-const departments = [
-  "Emergency Department",
-  "Intensive Care Unit",
-  "Pediatrics",
-  "Surgery",
-  "Radiology",
-  "Laboratory",
-];
-
 const positions = [
   "Registered Nurse",
   "Licensed Practical Nurse",
@@ -61,11 +54,15 @@ const positions = [
 ];
 
 export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
+  const { data: areas = [], isLoading: areasLoading } = useQuery<Area[]>({
+    queryKey: ["/api/areas"],
+  });
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       position: "",
-      department: "",
+      areaId: "",
       location: "",
       date: "",
       startTime: "",
@@ -116,22 +113,32 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
 
               <FormField
                 control={form.control}
-                name="department"
+                name="areaId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <FormLabel>Area</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={areasLoading}>
                       <FormControl>
-                        <SelectTrigger data-testid="select-department">
-                          <SelectValue placeholder="Select department" />
+                        <SelectTrigger data-testid="select-area">
+                          {areasLoading ? (
+                            <div className="flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Loading...
+                            </div>
+                          ) : (
+                            <SelectValue placeholder="Select area" />
+                          )}
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                        {areas.map((area) => (
+                          <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormDescription>
+                      Only employees assigned to this area will be notified
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -225,7 +232,7 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
                   <div className="space-y-0.5">
                     <FormLabel className="text-base">Send SMS Notification</FormLabel>
                     <FormDescription>
-                      Notify all employees about this new shift via SMS
+                      Notify employees in the selected area about this shift via SMS
                     </FormDescription>
                   </div>
                   <FormControl>

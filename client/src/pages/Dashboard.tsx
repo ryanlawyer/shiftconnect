@@ -19,7 +19,7 @@ const mockRecentShifts: ShiftCardProps[] = [
   {
     id: "1",
     position: "Registered Nurse",
-    department: "Emergency Department",
+    areaName: "Emergency Department",
     location: "Building A, Floor 2",
     date: "Dec 18, 2025",
     startTime: "07:00",
@@ -33,7 +33,7 @@ const mockRecentShifts: ShiftCardProps[] = [
   {
     id: "2",
     position: "CNA",
-    department: "Intensive Care Unit",
+    areaName: "Intensive Care Unit",
     location: "Building B, Floor 3",
     date: "Dec 19, 2025",
     startTime: "15:00",
@@ -46,7 +46,7 @@ const mockRecentShifts: ShiftCardProps[] = [
   {
     id: "3",
     position: "Medical Technologist",
-    department: "Laboratory",
+    areaName: "Laboratory",
     location: "Main Lab",
     date: "Dec 17, 2025",
     startTime: "08:00",
