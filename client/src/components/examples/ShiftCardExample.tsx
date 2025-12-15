@@ -5,7 +5,7 @@ export default function ShiftCardExample() {
     <ShiftCard
       id="1"
       position="Registered Nurse"
-      department="Emergency Department"
+      areaName="Emergency Department"
       location="Building A, Floor 2"
       date="Dec 18, 2025"
       startTime="07:00"

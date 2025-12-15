@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 const mockShift = {
   id: "1",
   position: "Registered Nurse",
-  department: "Emergency Department",
+  areaName: "Emergency Department",
   location: "Building A, Floor 2, Station 5",
   date: "Dec 18, 2025",
   startTime: "07:00",

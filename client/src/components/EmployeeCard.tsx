@@ -1,7 +1,14 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MessageSquare, Phone, MapPin, Edit2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MessageSquare, Phone, MapPin, Edit2, UserCog, UserPlus, Send, History } from "lucide-react";
+import { useLocation } from "wouter";
 import type { Area } from "@shared/schema";
 
 export type EmployeeRole = "admin" | "supervisor" | "employee";
@@ -9,16 +16,18 @@ export type EmployeeRole = "admin" | "supervisor" | "employee";
 export interface EmployeeCardProps {
   id: string;
   name: string;
-  role: EmployeeRole;
+  role: string;
   position: string;
   phone: string;
   areas?: Area[];
   onSendSMS?: (id: string) => void;
   onViewProfile?: (id: string) => void;
   onEditAreas?: (id: string) => void;
+  onManageUser?: (id: string) => void;
+  hasUserAccount?: boolean;
 }
 
-const roleConfig = {
+const roleConfig: Record<string, { label: string; className: string }> = {
   admin: { label: "Admin", className: "bg-primary/10 text-primary" },
   supervisor: { label: "Supervisor", className: "bg-chart-2/10 text-chart-2" },
   employee: { label: "Employee", className: "bg-muted text-muted-foreground" },
@@ -34,9 +43,18 @@ export function EmployeeCard({
   onSendSMS,
   onViewProfile,
   onEditAreas,
+  onManageUser,
+  hasUserAccount,
 }: EmployeeCardProps) {
-  const config = roleConfig[role];
+  const [, setLocation] = useLocation();
+  const normalizedRole = role.toLowerCase();
+  const config = roleConfig[normalizedRole] || { label: role, className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300" };
   const initials = name.split(' ').map(n => n[0]).join('').toUpperCase();
+
+  const handleViewConversation = () => {
+    // Navigate to messages page with the employee pre-selected
+    setLocation(`/messages?employee=${id}`);
+  };
 
   return (
     <div
@@ -65,9 +83,9 @@ export function EmployeeCard({
             <div className="flex items-center gap-1 mt-1 flex-wrap">
               <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
               {areas.map((area) => (
-                <Badge 
-                  key={area.id} 
-                  variant="outline" 
+                <Badge
+                  key={area.id}
+                  variant="outline"
                   className="text-xs"
                   data-testid={`badge-area-${id}-${area.id}`}
                 >
@@ -112,17 +130,46 @@ export function EmployeeCard({
           <Phone className="h-3 w-3" />
           <span className="font-mono">{phone}</span>
         </div>
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSendSMS?.(id);
-          }}
-          data-testid={`button-sms-${id}`}
-        >
-          <MessageSquare className="h-4 w-4" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`button-sms-${id}`}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onSendSMS?.(id)}>
+              <Send className="h-4 w-4 mr-2" />
+              Send SMS
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleViewConversation}>
+              <History className="h-4 w-4 mr-2" />
+              View Conversation
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {onManageUser && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onManageUser(id);
+            }}
+            title={hasUserAccount ? "Manage User Account" : "Create User Account"}
+            data-testid={`button-manage-user-${id}`}
+          >
+            {hasUserAccount ? (
+              <UserCog className="h-4 w-4" />
+            ) : (
+              <UserPlus className="h-4 w-4" />
+            )}
+          </Button>
+        )}
       </div>
     </div>
   );

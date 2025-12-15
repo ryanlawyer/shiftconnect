@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,122 +11,91 @@ import {
 } from "@/components/ui/select";
 import { ShiftCard, type ShiftCardProps } from "@/components/ShiftCard";
 import { ShiftDetailModal } from "@/components/ShiftDetailModal";
-import { Plus, Search, Filter } from "lucide-react";
+import { Plus, Search, Filter, Loader2, Calendar, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
+import { transformShiftsToCards, type ShiftWithDetails } from "@/lib/shiftUtils";
+import type { Area, Employee } from "@shared/schema";
+import type { InterestedEmployee } from "@/components/ShiftDetailModal";
 
-// todo: remove mock functionality
-const mockShifts: ShiftCardProps[] = [
-  {
-    id: "1",
-    position: "Registered Nurse",
-    department: "Emergency Department",
-    location: "Building A, Floor 2",
-    date: "Dec 18, 2025",
-    startTime: "07:00",
-    endTime: "19:00",
-    requirements: "BLS certification required",
-    postedBy: "Sarah Johnson",
-    postedAt: "2 hours ago",
-    status: "available",
-    interestedCount: 3,
-  },
-  {
-    id: "2",
-    position: "CNA",
-    department: "Intensive Care Unit",
-    location: "Building B, Floor 3",
-    date: "Dec 19, 2025",
-    startTime: "15:00",
-    endTime: "23:00",
-    postedBy: "Mike Wilson",
-    postedAt: "4 hours ago",
-    status: "available",
-    interestedCount: 1,
-  },
-  {
-    id: "3",
-    position: "Medical Technologist",
-    department: "Laboratory",
-    location: "Main Lab",
-    date: "Dec 17, 2025",
-    startTime: "08:00",
-    endTime: "16:00",
-    postedBy: "Sarah Johnson",
-    postedAt: "Yesterday",
-    status: "claimed",
-    interestedCount: 5,
-  },
-  {
-    id: "4",
-    position: "LPN",
-    department: "Pediatrics",
-    location: "Children's Wing",
-    date: "Dec 20, 2025",
-    startTime: "07:00",
-    endTime: "15:00",
-    requirements: "Pediatric experience preferred",
-    postedBy: "Lisa Chen",
-    postedAt: "5 hours ago",
-    status: "available",
-    interestedCount: 0,
-  },
-  {
-    id: "5",
-    position: "Respiratory Therapist",
-    department: "Intensive Care Unit",
-    location: "Building B, Floor 3",
-    date: "Dec 16, 2025",
-    startTime: "19:00",
-    endTime: "07:00",
-    postedBy: "Mike Wilson",
-    postedAt: "3 days ago",
-    status: "expired",
-    interestedCount: 2,
-  },
-  {
-    id: "6",
-    position: "Radiology Technician",
-    department: "Radiology",
-    location: "Imaging Center",
-    date: "Dec 21, 2025",
-    startTime: "08:00",
-    endTime: "16:00",
-    postedBy: "Sarah Johnson",
-    postedAt: "1 hour ago",
-    status: "available",
-    interestedCount: 0,
-  },
-];
-
-const departments = ["All Departments", "Emergency Department", "Intensive Care Unit", "Pediatrics", "Radiology", "Laboratory"];
 const statuses = ["All Status", "Available", "Claimed", "Expired"];
+
+// Type for the detailed shift response from /api/shifts/:id
+interface ShiftDetailResponse {
+  id: string;
+  position: string;
+  areaId: string;
+  location: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  requirements: string | null;
+  postedById: string | null;
+  postedByName: string;
+  status: "available" | "claimed" | "expired";
+  assignedEmployeeId: string | null;
+  createdAt: string;
+  area: Area | null;
+  assignedEmployee: Employee | null;
+  interestedEmployees: InterestedEmployee[];
+}
 
 export default function Shifts() {
   const [search, setSearch] = useState("");
-  const [department, setDepartment] = useState("All Departments");
-  const [status, setStatus] = useState("All Status");
-  const [selectedShift, setSelectedShift] = useState<typeof mockShifts[0] | null>(null);
+  const [areaFilter, setAreaFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("All Status");
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  const filteredShifts = mockShifts.filter((shift) => {
-    const matchesSearch = shift.position.toLowerCase().includes(search.toLowerCase()) ||
-                          shift.department.toLowerCase().includes(search.toLowerCase());
-    const matchesDept = department === "All Departments" || shift.department === department;
-    const matchesStatus = status === "All Status" || shift.status === status.toLowerCase();
-    return matchesSearch && matchesDept && matchesStatus;
+  // Fetch shifts and areas data
+  const { data: shifts = [], isLoading: loadingShifts } = useQuery<ShiftWithDetails[]>({
+    queryKey: ["/api/shifts"],
   });
 
+  const { data: areas = [], isLoading: loadingAreas } = useQuery<Area[]>({
+    queryKey: ["/api/areas"],
+  });
+
+  // Fetch detailed shift data when a shift is selected
+  const { data: shiftDetail } = useQuery<ShiftDetailResponse>({
+    queryKey: ["/api/shifts", selectedShiftId],
+    enabled: !!selectedShiftId && modalOpen,
+  });
+
+  const isLoading = loadingShifts || loadingAreas;
+
+  // Transform shifts to ShiftCardProps format using shared utility
+  const transformedShifts = useMemo(() => {
+    return transformShiftsToCards(shifts);
+  }, [shifts]);
+
+  // Filter shifts based on search, area, and status
+  const filteredShifts = useMemo(() => {
+    return transformedShifts.filter((shift) => {
+      const areaName = shift.areaName || "";
+      const matchesSearch = shift.position.toLowerCase().includes(search.toLowerCase()) ||
+                            areaName.toLowerCase().includes(search.toLowerCase());
+      const matchesArea = areaFilter === "all" || shift.area?.id === areaFilter;
+      const matchesStatus = statusFilter === "All Status" || shift.status === statusFilter.toLowerCase();
+      return matchesSearch && matchesArea && matchesStatus;
+    });
+  }, [transformedShifts, search, areaFilter, statusFilter]);
+
   const handleViewDetails = (id: string) => {
-    const shift = mockShifts.find(s => s.id === id);
-    if (shift) {
-      setSelectedShift(shift);
-      setModalOpen(true);
-    }
+    setSelectedShiftId(id);
+    setModalOpen(true);
   };
 
   const handleShowInterest = (id: string) => {
     console.log("Show interest in shift:", id);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64" data-testid="loading-shifts">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6" data-testid="page-shifts">
@@ -153,18 +123,19 @@ export default function Shifts() {
             data-testid="input-search-shifts"
           />
         </div>
-        <Select value={department} onValueChange={setDepartment}>
-          <SelectTrigger className="w-[200px]" data-testid="select-department-filter">
+        <Select value={areaFilter} onValueChange={setAreaFilter}>
+          <SelectTrigger className="w-[200px]" data-testid="select-area-filter">
             <Filter className="h-4 w-4 mr-2" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {departments.map((dept) => (
-              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+            <SelectItem value="all">All Areas</SelectItem>
+            {areas.map((area) => (
+              <SelectItem key={area.id} value={area.id}>{area.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Select value={status} onValueChange={setStatus}>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[150px]" data-testid="select-status-filter">
             <SelectValue />
           </SelectTrigger>
@@ -176,39 +147,79 @@ export default function Shifts() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredShifts.map((shift) => (
-          <ShiftCard
-            key={shift.id}
-            {...shift}
-            onShowInterest={handleShowInterest}
-            onViewDetails={handleViewDetails}
-          />
-        ))}
-      </div>
-
-      {filteredShifts.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">No shifts found matching your criteria.</p>
+      {filteredShifts.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredShifts.map((shift) => (
+            <ShiftCard
+              key={shift.id}
+              {...shift}
+              onShowInterest={handleShowInterest}
+              onViewDetails={handleViewDetails}
+            />
+          ))}
+        </div>
+      ) : shifts.length === 0 ? (
+        <div className="text-center py-16 border-2 border-dashed rounded-lg">
+          <Calendar className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-medium mb-2">No shifts available</h3>
+          <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+            There are no open shifts at the moment. Check back later or post a new shift to get started.
+          </p>
+          <Link href="/shifts/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Post New Shift
+            </Button>
+          </Link>
+        </div>
+      ) : (
+        <div className="text-center py-16 border-2 border-dashed rounded-lg">
+          <RefreshCw className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-medium mb-2">No matching shifts</h3>
+          <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+            No shifts match your current filters. Try adjusting your search criteria or clearing filters.
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSearch("");
+              setAreaFilter("all");
+              setStatusFilter("All Status");
+            }}
+          >
+            Clear All Filters
+          </Button>
         </div>
       )}
 
-      {selectedShift && (
+      {shiftDetail && (
         <ShiftDetailModal
           open={modalOpen}
-          onOpenChange={setModalOpen}
+          onOpenChange={(open) => {
+            setModalOpen(open);
+            if (!open) setSelectedShiftId(null);
+          }}
           shift={{
-            ...selectedShift,
-            interestedEmployees: [
-              { id: "1", name: "John Smith", timestamp: "2 hours ago" },
-              { id: "2", name: "Emily Davis", timestamp: "1 hour ago" },
-            ],
+            id: shiftDetail.id,
+            position: shiftDetail.position,
+            area: shiftDetail.area,
+            areaName: shiftDetail.area?.name,
+            location: shiftDetail.location,
+            date: shiftDetail.date,
+            startTime: shiftDetail.startTime,
+            endTime: shiftDetail.endTime,
+            requirements: shiftDetail.requirements,
+            postedBy: shiftDetail.postedByName,
+            status: shiftDetail.status,
+            interestedEmployees: shiftDetail.interestedEmployees,
+            assignedEmployee: shiftDetail.assignedEmployee,
           }}
           isAdmin={true}
           onShowInterest={handleShowInterest}
           onAssign={(shiftId, empId) => {
             console.log("Assign:", shiftId, empId);
             setModalOpen(false);
+            setSelectedShiftId(null);
           }}
           onMessageEmployee={(id) => console.log("Message:", id)}
         />

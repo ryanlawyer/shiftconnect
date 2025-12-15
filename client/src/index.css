@@ -286,3 +286,17 @@
     inset: -1px;
   }
 }
+
+/* Mobile bottom navigation safe area support */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-bottom-nav-spacer {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Hide mobile bottom nav on desktop */
+@media (min-width: 768px) {
+  .mobile-bottom-nav {
+    display: none;
+  }
+}

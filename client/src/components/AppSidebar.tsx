@@ -20,10 +20,14 @@ import {
   Users,
   GraduationCap,
   LayoutDashboard,
+  BarChart3,
   Settings,
   LogOut,
   Building2,
+  Shield,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { usePermissions, type Permission } from "@/hooks/use-permissions";
 
 export interface AppSidebarProps {
   userRole?: "admin" | "supervisor" | "employee";
@@ -31,49 +35,65 @@ export interface AppSidebarProps {
   unreadMessages?: number;
 }
 
-export function AppSidebar({ 
-  userRole = "admin", 
+export function AppSidebar({
+  userRole = "admin",
   userName = "Admin User",
-  unreadMessages = 0 
+  unreadMessages = 0
 }: AppSidebarProps) {
   const [location] = useLocation();
+  const { logoutMutation } = useAuth();
+  const { hasPermission } = usePermissions();
   const initials = userName.split(' ').map(n => n[0]).join('').toUpperCase();
 
-  const isAdmin = userRole === "admin" || userRole === "supervisor";
-
-  const mainNavItems = [
+  const allNavItems = [
     {
       title: "Dashboard",
       url: "/",
       icon: LayoutDashboard,
-      visible: isAdmin,
+      permission: null as Permission | null,
     },
     {
       title: "Open Shifts",
       url: "/shifts",
       icon: Calendar,
-      visible: true,
+      permission: "view_shifts" as Permission | null,
     },
     {
       title: "Messages",
       url: "/messages",
       icon: MessageSquare,
-      visible: true,
+      permission: null as Permission | null,
       badge: unreadMessages > 0 ? unreadMessages : undefined,
     },
     {
       title: "Employees",
       url: "/employees",
       icon: Users,
-      visible: isAdmin,
+      permission: "manage_employees" as Permission | null,
     },
     {
       title: "Training",
       url: "/training",
       icon: GraduationCap,
-      visible: true,
+      permission: null as Permission | null,
     },
-  ].filter(item => item.visible);
+    {
+      title: "Reports",
+      url: "/reports",
+      icon: BarChart3,
+      permission: "view_reports" as Permission | null,
+    },
+    {
+      title: "Audit Log",
+      url: "/audit-log",
+      icon: Shield,
+      permission: "view_audit_log" as Permission | null,
+    },
+  ];
+
+  const mainNavItems = allNavItems.filter(
+    item => !item.permission || hasPermission(item.permission)
+  );
 
   return (
     <Sidebar data-testid="app-sidebar">
@@ -140,7 +160,13 @@ export function AppSidebar({
             <p className="text-sm font-medium truncate" data-testid="text-user-name">{userName}</p>
             <p className="text-xs text-muted-foreground capitalize">{userRole}</p>
           </div>
-          <Button size="icon" variant="ghost" data-testid="button-logout">
+          <Button
+            size="icon"
+            variant="ghost"
+            data-testid="button-logout"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+          >
             <LogOut className="h-4 w-4" />
           </Button>
         </div>

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { EmployeeCard, type EmployeeRole } from "@/components/EmployeeCard";
 import { SMSComposePanel, type Recipient } from "@/components/SMSComposePanel";
-import { Search, Send, UserPlus, Loader2, Trash2 } from "lucide-react";
+import { Search, Send, UserPlus, Loader2, Trash2, CheckSquare, Square, Users, RefreshCw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -24,33 +24,24 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { UserManagementDialog } from "@/components/UserManagementDialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, Area } from "@shared/schema";
+import type { Employee, Area, Position, Role } from "@shared/schema";
 
-type EmployeeWithAreas = Employee & { areas: Area[] };
+type EmployeeWithAreas = Employee & { areas: Area[], user?: { id: string, username: string } | null };
 
 interface EmployeeFormData {
   name: string;
   phone: string;
   email: string;
-  position: string;
+  positionId: string;
+  roleId: string;
   status: string;
   smsOptIn: boolean;
   areaIds: string[];
 }
 
-const positions = [
-  "Direct Support Professional",
-  "Certified Nursing Assistant",
-  "Licensed Practical Nurse",
-  "Registered Nurse",
-  "House Manager",
-  "Program Supervisor",
-  "Administrator",
-];
-
-const roles = ["All Roles", "Admin", "Supervisor", "Employee"];
 
 export default function Employees() {
   const { toast } = useToast();
@@ -60,19 +51,25 @@ export default function Employees() {
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [directSmsEmployee, setDirectSmsEmployee] = useState<string | null>(null);
-  
+
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<EmployeeWithAreas | null>(null);
   const [formData, setFormData] = useState<EmployeeFormData>({
     name: "",
     phone: "",
     email: "",
-    position: "",
+    positionId: "",
+    roleId: "",
     status: "active",
     smsOptIn: true,
     areaIds: [],
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+
+  // User Management State
+  const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [userDialogEmployee, setUserDialogEmployee] = useState<EmployeeWithAreas | null>(null);
 
   const { data: employees = [], isLoading: loadingEmployees } = useQuery<EmployeeWithAreas[]>({
     queryKey: ["/api/employees"],
@@ -80,6 +77,14 @@ export default function Employees() {
 
   const { data: areas = [], isLoading: loadingAreas } = useQuery<Area[]>({
     queryKey: ["/api/areas"],
+  });
+
+  const { data: positions = [], isLoading: loadingPositions } = useQuery<Position[]>({
+    queryKey: ["/api/positions"],
+  });
+
+  const { data: roles = [], isLoading: loadingRoles } = useQuery<Role[]>({
+    queryKey: ["/api/roles"],
   });
 
   const createEmployeeMutation = useMutation({
@@ -141,7 +146,8 @@ export default function Employees() {
       name: "",
       phone: "",
       email: "",
-      position: "",
+      positionId: "",
+      roleId: "",
       status: "active",
       smsOptIn: true,
       areaIds: [],
@@ -161,7 +167,8 @@ export default function Employees() {
         name: emp.name,
         phone: emp.phone,
         email: emp.email || "",
-        position: emp.position,
+        positionId: emp.positionId,
+        roleId: emp.roleId || "",
         status: emp.status,
         smsOptIn: emp.smsOptIn,
         areaIds: emp.areas.map(a => a.id),
@@ -171,11 +178,11 @@ export default function Employees() {
   };
 
   const handleSubmit = () => {
-    if (!formData.name.trim() || !formData.phone.trim() || !formData.position) {
+    if (!formData.name.trim() || !formData.phone.trim() || !formData.positionId) {
       toast({ title: "Please fill in all required fields", variant: "destructive" });
       return;
     }
-    
+
     if (editingEmployee) {
       updateEmployeeMutation.mutate({ id: editingEmployee.id, data: formData });
     } else {
@@ -193,9 +200,12 @@ export default function Employees() {
   };
 
   const filteredEmployees = employees.filter((emp) => {
+    const position = positions.find(p => p.id === emp.positionId);
+    const positionTitle = position?.title || "";
+
     const matchesSearch = emp.name.toLowerCase().includes(search.toLowerCase()) ||
-                          emp.position.toLowerCase().includes(search.toLowerCase());
-    const matchesRole = role === "All Roles" || emp.position.toLowerCase().includes(role.toLowerCase());
+      positionTitle.toLowerCase().includes(search.toLowerCase());
+    const matchesRole = role === "All Roles" || emp.roleId === role;
     const matchesArea = areaFilter === "All Areas" || emp.areas.some(a => a.id === areaFilter);
     return matchesSearch && matchesRole && matchesArea;
   });
@@ -231,12 +241,14 @@ export default function Employees() {
     );
   };
 
-  const mapPositionToRole = (position: string): EmployeeRole => {
-    const lowerPosition = position.toLowerCase();
-    if (lowerPosition.includes("admin") || lowerPosition.includes("manager")) return "admin";
-    if (lowerPosition.includes("supervisor") || lowerPosition.includes("lead")) return "supervisor";
-    return "employee";
+  const handleManageUser = (id: string) => {
+    const emp = employees.find(e => e.id === id);
+    if (emp) {
+      setUserDialogEmployee(emp);
+      setUserDialogOpen(true);
+    }
   };
+
 
   const isPending = createEmployeeMutation.isPending || updateEmployeeMutation.isPending;
 
@@ -256,12 +268,32 @@ export default function Employees() {
           <p className="text-muted-foreground">Manage staff and send notifications</p>
         </div>
         <div className="flex items-center gap-2">
-          {selectedEmployees.length > 0 && (
+          {selectionMode && selectedEmployees.length > 0 && (
             <Button onClick={() => { setDirectSmsEmployee(null); setSmsModalOpen(true); }} data-testid="button-sms-selected">
               <Send className="h-4 w-4 mr-2" />
               SMS ({selectedEmployees.length})
             </Button>
           )}
+          <Button
+            variant={selectionMode ? "secondary" : "outline"}
+            onClick={() => {
+              setSelectionMode(!selectionMode);
+              if (selectionMode) setSelectedEmployees([]);
+            }}
+            data-testid="button-toggle-selection"
+          >
+            {selectionMode ? (
+              <>
+                <CheckSquare className="h-4 w-4 mr-2" />
+                Done Selecting
+              </>
+            ) : (
+              <>
+                <Square className="h-4 w-4 mr-2" />
+                Select Multiple
+              </>
+            )}
+          </Button>
           <Button onClick={openCreateDialog} data-testid="button-add-employee">
             <UserPlus className="h-4 w-4 mr-2" />
             Add Employee
@@ -285,8 +317,9 @@ export default function Employees() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="All Roles">All Roles</SelectItem>
             {roles.map((r) => (
-              <SelectItem key={r} value={r}>{r}</SelectItem>
+              <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -305,31 +338,91 @@ export default function Employees() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Employee Directory ({filteredEmployees.length})</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Employee Directory ({filteredEmployees.length})</CardTitle>
+            {selectionMode && filteredEmployees.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (selectedEmployees.length === filteredEmployees.length) {
+                    setSelectedEmployees([]);
+                  } else {
+                    setSelectedEmployees(filteredEmployees.map(e => e.id));
+                  }
+                }}
+                data-testid="button-select-all"
+              >
+                {selectedEmployees.length === filteredEmployees.length ? "Deselect All" : "Select All"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {filteredEmployees.map((emp) => (
             <div
               key={emp.id}
-              className={`cursor-pointer ${selectedEmployees.includes(emp.id) ? 'bg-primary/5' : ''}`}
-              onClick={() => toggleEmployeeSelection(emp.id)}
+              className={`flex items-stretch ${selectedEmployees.includes(emp.id) ? 'bg-primary/5' : ''}`}
             >
-              <EmployeeCard
-                id={emp.id}
-                name={emp.name}
-                role={mapPositionToRole(emp.position)}
-                position={emp.position}
-                phone={emp.phone}
-                areas={emp.areas}
-                onSendSMS={handleSendSMS}
-                onViewProfile={openEditDialog}
-                onEditAreas={openEditDialog}
-              />
+              {selectionMode && (
+                <div
+                  className="flex items-center px-4 cursor-pointer hover:bg-muted/50 border-r"
+                  onClick={() => toggleEmployeeSelection(emp.id)}
+                  data-testid={`checkbox-select-${emp.id}`}
+                >
+                  <Checkbox
+                    checked={selectedEmployees.includes(emp.id)}
+                    onCheckedChange={() => toggleEmployeeSelection(emp.id)}
+                  />
+                </div>
+              )}
+              <div className="flex-1">
+                <EmployeeCard
+                  id={emp.id}
+                  name={emp.name}
+                  role={roles.find(r => r.id === emp.roleId)?.name || "Employee"}
+                  position={positions.find(p => p.id === emp.positionId)?.title || "Unknown Position"}
+                  phone={emp.phone}
+                  areas={emp.areas}
+                  onSendSMS={handleSendSMS}
+                  onViewProfile={openEditDialog}
+                  onEditAreas={openEditDialog}
+                  onManageUser={handleManageUser}
+                  hasUserAccount={!!emp.user}
+                />
+              </div>
             </div>
           ))}
-          {filteredEmployees.length === 0 && (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">No employees found matching your criteria.</p>
+          {filteredEmployees.length === 0 && employees.length === 0 && (
+            <div className="text-center py-16">
+              <Users className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-medium mb-2">No employees yet</h3>
+              <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+                Add your first team member to start managing shifts and sending notifications.
+              </p>
+              <Button onClick={openCreateDialog}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Add First Employee
+              </Button>
+            </div>
+          )}
+          {filteredEmployees.length === 0 && employees.length > 0 && (
+            <div className="text-center py-16">
+              <RefreshCw className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+              <h3 className="text-lg font-medium mb-2">No matching employees</h3>
+              <p className="text-muted-foreground mb-4 max-w-sm mx-auto">
+                No employees match your current filters. Try adjusting your search or filter criteria.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearch("");
+                  setRole("All Roles");
+                  setAreaFilter("All Areas");
+                }}
+              >
+                Clear All Filters
+              </Button>
             </div>
           )}
         </CardContent>
@@ -372,12 +465,12 @@ export default function Employees() {
           <DialogHeader>
             <DialogTitle>{editingEmployee ? "Edit Employee" : "Add New Employee"}</DialogTitle>
             <DialogDescription>
-              {editingEmployee 
-                ? "Update employee information and placement assignments." 
+              {editingEmployee
+                ? "Update employee information and placement assignments."
                 : "Add a new staff member to your team."}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name *</Label>
@@ -415,16 +508,33 @@ export default function Employees() {
 
             <div className="space-y-2">
               <Label htmlFor="position">Position *</Label>
-              <Select 
-                value={formData.position} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, position: value }))}
+              <Select
+                value={formData.positionId}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, positionId: value }))}
               >
                 <SelectTrigger data-testid="select-employee-position">
                   <SelectValue placeholder="Select position" />
                 </SelectTrigger>
                 <SelectContent>
                   {positions.map((pos) => (
-                    <SelectItem key={pos} value={pos}>{pos}</SelectItem>
+                    <SelectItem key={pos.id} value={pos.id}>{pos.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="role">Access Role *</Label>
+              <Select
+                value={formData.roleId}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, roleId: value }))}
+              >
+                <SelectTrigger data-testid="select-employee-role">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -432,8 +542,8 @@ export default function Employees() {
 
             <div className="space-y-2">
               <Label htmlFor="status">Status</Label>
-              <Select 
-                value={formData.status} 
+              <Select
+                value={formData.status}
                 onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}
               >
                 <SelectTrigger data-testid="select-employee-status">
@@ -491,8 +601,8 @@ export default function Employees() {
           <DialogFooter className="flex flex-row items-center justify-between gap-2 sm:justify-between">
             <div>
               {editingEmployee && (
-                <Button 
-                  variant="destructive" 
+                <Button
+                  variant="destructive"
                   onClick={() => setDeleteConfirmOpen(true)}
                   data-testid="button-delete-employee"
                 >
@@ -526,8 +636,8 @@ export default function Employees() {
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
               Cancel
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               onClick={() => editingEmployee && deleteEmployeeMutation.mutate(editingEmployee.id)}
               disabled={deleteEmployeeMutation.isPending}
               data-testid="button-confirm-delete"
@@ -538,6 +648,14 @@ export default function Employees() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {userDialogEmployee && (
+        <UserManagementDialog
+          open={userDialogOpen}
+          onOpenChange={setUserDialogOpen}
+          employee={userDialogEmployee}
+        />
+      )}
     </div>
   );
 }

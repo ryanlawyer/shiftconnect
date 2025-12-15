@@ -2,8 +2,8 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { MapPin, Clock, Users, Calendar, Hand } from "lucide-react";
-import type { Area } from "@shared/schema";
+import { MapPin, Clock, Users, Calendar, Hand, UserCheck } from "lucide-react";
+import type { Area, Employee } from "@shared/schema";
 
 export type ShiftStatus = "available" | "claimed" | "expired";
 
@@ -21,6 +21,7 @@ export interface ShiftCardProps {
   postedAt: string;
   status: ShiftStatus;
   interestedCount?: number;
+  assignedEmployee?: Employee | null;
   onShowInterest?: (id: string) => void;
   onViewDetails?: (id: string) => void;
   isAdmin?: boolean;
@@ -46,6 +47,7 @@ export function ShiftCard({
   postedAt,
   status,
   interestedCount = 0,
+  assignedEmployee,
   onShowInterest,
   onViewDetails,
   isAdmin = false,
@@ -85,6 +87,14 @@ export function ShiftCard({
         </div>
         {requirements && (
           <p className="text-sm text-muted-foreground">{requirements}</p>
+        )}
+        {assignedEmployee && (
+          <div className="flex items-center gap-1.5 text-sm">
+            <UserCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span className="text-blue-600 dark:text-blue-400 font-medium">
+              Assigned to {assignedEmployee.name}
+            </span>
+          </div>
         )}
         {interestedCount > 0 && (
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

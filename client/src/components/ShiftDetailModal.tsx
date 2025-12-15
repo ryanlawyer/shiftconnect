@@ -12,11 +12,12 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle } from "lucide-react";
+import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle, UserCheck } from "lucide-react";
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
 import type { ShiftStatus } from "./ShiftCard";
-import type { Area } from "@shared/schema";
+import type { Area, Employee, Position } from "@shared/schema";
 
 export interface InterestedEmployee {
   id: string;
@@ -40,6 +41,7 @@ export interface ShiftDetailModalProps {
     postedBy: string;
     status: ShiftStatus;
     interestedEmployees: InterestedEmployee[];
+    assignedEmployee?: Employee | null;
   };
   isAdmin?: boolean;
   onShowInterest?: (id: string) => void;
@@ -65,6 +67,10 @@ export function ShiftDetailModal({
   const [sendNotification, setSendNotification] = useState(true);
   const config = statusConfig[shift.status];
   const displayAreaName = shift.area?.name || shift.areaName || "Unassigned";
+
+  const { data: positions = [] } = useQuery<Position[]>({
+    queryKey: ["/api/positions"],
+  });
 
   const sortedInterestedEmployees = useMemo(() => {
     return [...shift.interestedEmployees].sort((a, b) => {
@@ -130,43 +136,101 @@ export function ShiftDetailModal({
 
           <Separator />
 
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Users className="h-4 w-4" />
-              <p className="text-sm font-medium">Interested Employees ({shift.interestedEmployees.length})</p>
-            </div>
-            {sortedInterestedEmployees.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No one has expressed interest yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {sortedInterestedEmployees.map((emp, index) => (
-                  <div
-                    key={emp.id}
-                    className="flex items-center justify-between p-2 rounded-md bg-muted/50"
-                    data-testid={`interested-employee-${emp.id}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="text-xs">
-                            {emp.name.split(' ').map(n => n[0]).join('')}
-                          </AvatarFallback>
-                        </Avatar>
-                        {index === 0 && (
-                          <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-medium">
-                            1
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{emp.name}</p>
-                        <p className="text-xs text-muted-foreground" data-testid={`timestamp-${emp.id}`}>
-                          Responded: {formatInterestTimestamp(emp.timestamp)}
-                        </p>
-                      </div>
+          {/* Assigned Employee Section - shown for claimed shifts */}
+          {shift.assignedEmployee && (
+            <>
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <UserCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <p className="text-sm font-medium">Assigned Employee</p>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-800 dark:text-blue-200">
+                        {shift.assignedEmployee.name.split(' ').map(n => n[0]).join('')}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">{shift.assignedEmployee.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {positions.find(p => p.id === shift.assignedEmployee?.positionId)?.title || "Unknown Position"}
+                      </p>
                     </div>
-                    {isAdmin && (
+                  </div>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onMessageEmployee?.(shift.assignedEmployee!.id)}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <Separator />
+            </>
+          )}
+
+          {/* Interested Employees Section - shown for available and claimed (non-expired) shifts */}
+          {shift.status !== "expired" && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4" />
+                <p className="text-sm font-medium">Interested Employees ({shift.interestedEmployees.length})</p>
+              </div>
+              {sortedInterestedEmployees.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No one has expressed interest yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {sortedInterestedEmployees.map((emp, index) => (
+                    <div
+                      key={emp.id}
+                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                      data-testid={`interested-employee-${emp.id}`}
+                    >
                       <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback className="text-xs">
+                              {emp.name.split(' ').map(n => n[0]).join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          {index === 0 && (
+                            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-medium">
+                              1
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{emp.name}</p>
+                          <p className="text-xs text-muted-foreground" data-testid={`timestamp-${emp.id}`}>
+                            Responded: {formatInterestTimestamp(emp.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+                      {isAdmin && shift.status === "available" && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onMessageEmployee?.(emp.id)}
+                            data-testid={`button-message-${emp.id}`}
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => onAssign?.(shift.id, emp.id, sendNotification)}
+                            data-testid={`button-assign-${emp.id}`}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Assign
+                          </Button>
+                        </div>
+                      )}
+                      {isAdmin && shift.status === "claimed" && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -175,21 +239,13 @@ export function ShiftDetailModal({
                         >
                           <MessageSquare className="h-4 w-4" />
                         </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => onAssign?.(shift.id, emp.id, sendNotification)}
-                          data-testid={`button-assign-${emp.id}`}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          Assign
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {isAdmin && shift.status === "available" && (
             <>

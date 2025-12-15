@@ -1,7 +1,9 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { startReminderChecker, stopReminderChecker } from "./services/shiftReminderScheduler";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +62,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  setupAuth(app);
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -93,6 +96,21 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // Start the shift reminder scheduler
+      const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `http://localhost:${port}`;
+      startReminderChecker(webhookBaseUrl);
+      log("Shift reminder scheduler started");
     },
   );
+
+  // Graceful shutdown
+  process.on("SIGTERM", () => {
+    log("SIGTERM received, shutting down gracefully");
+    stopReminderChecker();
+    httpServer.close(() => {
+      log("Server closed");
+      process.exit(0);
+    });
+  });
 })();
