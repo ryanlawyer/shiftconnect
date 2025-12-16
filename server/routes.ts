@@ -47,8 +47,28 @@ export async function registerRoutes(
 
   // RingCentral webhooks - MUST be registered before requireAuth middleware
   // These endpoints receive callbacks from RingCentral and cannot have authentication
-  app.post("/api/sms/webhooks/ringcentral/status", smsRoutes);
-  app.post("/api/sms/webhooks/ringcentral/inbound", smsRoutes);
+  // We create simple passthrough handlers that forward to the smsRoutes router
+  app.post("/api/sms/webhooks/ringcentral/status", (req, res, next) => {
+    // Handle RingCentral validation token
+    if (req.headers["validation-token"]) {
+      res.set("Validation-Token", req.headers["validation-token"] as string);
+      return res.status(200).send();
+    }
+    // Forward to the actual handler in smsRoutes
+    req.url = "/webhooks/ringcentral/status";
+    smsRoutes(req, res, next);
+  });
+  
+  app.post("/api/sms/webhooks/ringcentral/inbound", (req, res, next) => {
+    // Handle RingCentral validation token
+    if (req.headers["validation-token"]) {
+      res.set("Validation-Token", req.headers["validation-token"] as string);
+      return res.status(200).send();
+    }
+    // Forward to the actual handler in smsRoutes
+    req.url = "/webhooks/ringcentral/inbound";
+    smsRoutes(req, res, next);
+  });
 
   // Protect all API routes defined here
   app.use("/api", requireAuth);
