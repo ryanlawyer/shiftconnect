@@ -26,7 +26,8 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { UserManagementDialog } from "@/components/UserManagementDialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -592,193 +593,215 @@ export default function Employees() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name *</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="Enter full name"
-                data-testid="input-employee-name"
-              />
-            </div>
+          <Tabs defaultValue="details" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="details" data-testid="tab-employee-details">Employee Details</TabsTrigger>
+              <TabsTrigger value="access" data-testid="tab-web-access">Web Access</TabsTrigger>
+            </TabsList>
 
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number *</Label>
-              <PhoneInput
-                id="phone"
-                value={formData.phone}
-                onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
-                data-testid="input-employee-phone"
-              />
-              <p className="text-xs text-muted-foreground">Enter 10 digits, formatting is automatic</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email (Optional)</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="email@example.com"
-                data-testid="input-employee-email"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="position">Position *</Label>
-              <Select
-                value={formData.positionId}
-                onValueChange={(value) => setFormData(prev => ({ ...prev, positionId: value }))}
-              >
-                <SelectTrigger data-testid="select-employee-position">
-                  <SelectValue placeholder="Select position" />
-                </SelectTrigger>
-                <SelectContent>
-                  {positions.map((pos) => (
-                    <SelectItem key={pos.id} value={pos.id}>{pos.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="role">Access Role *</Label>
-              <Select
-                value={formData.roleId}
-                onValueChange={(value) => setFormData(prev => ({ ...prev, roleId: value }))}
-              >
-                <SelectTrigger data-testid="select-employee-role">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}
-              >
-                <SelectTrigger data-testid="select-employee-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label>SMS Notifications</Label>
-                <p className="text-xs text-muted-foreground">
-                  Receive shift availability notifications via text
-                </p>
+            <TabsContent value="details" className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="Enter full name"
+                  data-testid="input-employee-name"
+                />
               </div>
-              <Switch
-                checked={formData.smsOptIn}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, smsOptIn: checked }))}
-                data-testid="switch-sms-optin"
-              />
-            </div>
 
-            <Separator />
-
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label>Web Access</Label>
-                <p className="text-xs text-muted-foreground">
-                  Allow this employee to log in to the web application
-                </p>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number *</Label>
+                <PhoneInput
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
+                  data-testid="input-employee-phone"
+                />
+                <p className="text-xs text-muted-foreground">Enter 10 digits, formatting is automatic</p>
               </div>
-              <Switch
-                checked={formData.webAccessEnabled}
-                onCheckedChange={(checked) => {
-                  setFormData(prev => {
-                    // Generate default username when enabling web access
-                    let username = prev.username;
-                    if (checked && !username && prev.name) {
-                      const nameParts = prev.name.toLowerCase().trim().split(/\s+/);
-                      if (nameParts.length >= 2) {
-                        username = nameParts[0].charAt(0) + nameParts[nameParts.length - 1].replace(/[^a-z0-9]/g, "");
-                      } else if (nameParts.length === 1) {
-                        username = nameParts[0].replace(/[^a-z0-9]/g, "");
-                      }
-                    }
-                    return { ...prev, webAccessEnabled: checked, username };
-                  });
-                }}
-                data-testid="switch-web-access"
-              />
-            </div>
 
-            {formData.webAccessEnabled && (
-              <div className="space-y-4 pl-4 border-l-2 border-muted">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email (Optional)</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder="email@example.com"
+                  data-testid="input-employee-email"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="username">Username *</Label>
-                  <Input
-                    id="username"
-                    value={formData.username}
-                    onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "") }))}
-                    placeholder="jsmith"
-                    data-testid="input-employee-username"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Used for logging in to the web application
-                  </p>
+                  <Label htmlFor="position">Position *</Label>
+                  <Select
+                    value={formData.positionId}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, positionId: value }))}
+                  >
+                    <SelectTrigger data-testid="select-employee-position">
+                      <SelectValue placeholder="Select position" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {positions.map((pos) => (
+                        <SelectItem key={pos.id} value={pos.id}>{pos.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="password">
-                    {editingEmployee?.webAccessEnabled ? "New Password (leave blank to keep current)" : "Password *"}
-                  </Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                    placeholder={editingEmployee?.webAccessEnabled ? "Leave blank to keep current" : "Enter password"}
-                    data-testid="input-employee-password"
-                  />
+                  <Label htmlFor="role">Access Role *</Label>
+                  <Select
+                    value={formData.roleId}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, roleId: value }))}
+                  >
+                    <SelectTrigger data-testid="select-employee-role">
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            )}
 
-            <div className="space-y-3">
-              <Label>Placement Assignments</Label>
-              <p className="text-xs text-muted-foreground">
-                Select which placement types this employee can work in
-              </p>
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {areas.map((area) => (
-                  <div key={area.id} className="flex items-center gap-3">
-                    <Checkbox
-                      id={`edit-area-${area.id}`}
-                      checked={formData.areaIds.includes(area.id)}
-                      onCheckedChange={() => toggleAreaSelection(area.id)}
-                      data-testid={`checkbox-area-${area.id}`}
-                    />
-                    <Label htmlFor={`edit-area-${area.id}`} className="cursor-pointer text-sm">
-                      {area.name}
-                    </Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}
+                  >
+                    <SelectTrigger data-testid="select-employee-status">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <Label className="text-sm">SMS Opt-In</Label>
                   </div>
-                ))}
-                {areas.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    No placement types configured. Add them in Settings first.
-                  </p>
-                )}
+                  <Switch
+                    checked={formData.smsOptIn}
+                    onCheckedChange={(checked) => setFormData(prev => ({ ...prev, smsOptIn: checked }))}
+                    data-testid="switch-sms-optin"
+                  />
+                </div>
               </div>
-            </div>
-          </div>
+
+              <div className="space-y-3">
+                <Label>Placement Assignments</Label>
+                <p className="text-xs text-muted-foreground">
+                  Select which placement types this employee can work in
+                </p>
+                <ScrollArea className="h-32 rounded-md border p-3">
+                  <div className="space-y-2">
+                    {areas.map((area) => (
+                      <div key={area.id} className="flex items-center gap-3">
+                        <Checkbox
+                          id={`edit-area-${area.id}`}
+                          checked={formData.areaIds.includes(area.id)}
+                          onCheckedChange={() => toggleAreaSelection(area.id)}
+                          data-testid={`checkbox-area-${area.id}`}
+                        />
+                        <Label htmlFor={`edit-area-${area.id}`} className="cursor-pointer text-sm">
+                          {area.name}
+                        </Label>
+                      </div>
+                    ))}
+                    {areas.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No placement types configured. Add them in Settings first.
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="access" className="space-y-4 py-2">
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div className="space-y-1">
+                  <Label className="text-base font-medium">Enable Web Access</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Allow this employee to log in to the web application
+                  </p>
+                </div>
+                <Switch
+                  checked={formData.webAccessEnabled}
+                  onCheckedChange={(checked) => {
+                    setFormData(prev => {
+                      let username = prev.username;
+                      if (checked && !username && prev.name) {
+                        const nameParts = prev.name.toLowerCase().trim().split(/\s+/);
+                        if (nameParts.length >= 2) {
+                          username = nameParts[0].charAt(0) + nameParts[nameParts.length - 1].replace(/[^a-z0-9]/g, "");
+                        } else if (nameParts.length === 1) {
+                          username = nameParts[0].replace(/[^a-z0-9]/g, "");
+                        }
+                      }
+                      return { ...prev, webAccessEnabled: checked, username };
+                    });
+                  }}
+                  data-testid="switch-web-access"
+                />
+              </div>
+
+              {formData.webAccessEnabled && (
+                <div className="space-y-4 rounded-lg border p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="username">Username *</Label>
+                    <Input
+                      id="username"
+                      value={formData.username}
+                      onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "") }))}
+                      placeholder="jsmith"
+                      data-testid="input-employee-username"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Used for logging in to the web application
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">
+                      {editingEmployee?.webAccessEnabled ? "New Password (leave blank to keep current)" : "Password *"}
+                    </Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                      placeholder={editingEmployee?.webAccessEnabled ? "Leave blank to keep current" : "Enter password"}
+                      data-testid="input-employee-password"
+                    />
+                    {!editingEmployee?.webAccessEnabled && (
+                      <p className="text-xs text-muted-foreground">
+                        Required when enabling web access for the first time
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {!formData.webAccessEnabled && (
+                <div className="rounded-lg bg-muted/50 p-4 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Enable web access above to configure login credentials for this employee.
+                  </p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter className="flex flex-row items-center justify-between gap-2 sm:justify-between">
             <div>
