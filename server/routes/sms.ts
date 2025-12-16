@@ -1786,9 +1786,23 @@ router.post("/webhooks/ringcentral/inbound", async (req, res) => {
     }
 
     // Deduplicate - skip if we've already processed this message
-    if (messageId && !markMessageProcessed(messageId)) {
-      console.log("Skipping duplicate webhook for message:", messageId);
-      return res.status(200).send("OK");
+    // First check in-memory cache (fast), then check database (persistent)
+    if (messageId) {
+      if (!markMessageProcessed(messageId)) {
+        console.log("Skipping duplicate webhook (cache hit):", messageId);
+        return res.status(200).send("OK");
+      }
+      // Also check database for duplicates (handles restarts/multi-instance)
+      try {
+        const existingMessage = await storage.getMessageByProviderMessageId(String(messageId));
+        if (existingMessage) {
+          console.log("Skipping duplicate webhook (db hit):", messageId);
+          return res.status(200).send("OK");
+        }
+      } catch (dbErr) {
+        // If DB check fails, continue processing (better to process than drop)
+        console.log("DB dedup check failed, continuing:", dbErr);
+      }
     }
 
     // Find employee by phone number
