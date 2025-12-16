@@ -260,12 +260,22 @@ export default function Settings() {
   // Organization Settings
   const [urgentThreshold, setUrgentThreshold] = useState("48");
 
-  // SMS/Twilio Settings
+  // SMS Settings (provider-agnostic)
   const [smsSettings, setSmsSettings] = useState({
+    // Provider selection
+    smsProvider: "twilio" as "twilio" | "ringcentral",
+    // Twilio credentials
     twilioAccountSid: "",
     twilioAuthToken: "",
     twilioFromNumber: "",
     twilioMessagingServiceSid: "",
+    // RingCentral credentials
+    ringcentralClientId: "",
+    ringcentralClientSecret: "",
+    ringcentralJwt: "",
+    ringcentralFromNumber: "",
+    ringcentralServerUrl: "https://platform.ringcentral.com",
+    // General settings
     smsEnabled: false,
     smsDailyLimit: "1000",
     notifyOnNewShift: true,
@@ -277,10 +287,13 @@ export default function Settings() {
     smsRespectQuietHours: true,
   });
   const [showAuthToken, setShowAuthToken] = useState(false);
+  const [showRcSecret, setShowRcSecret] = useState(false);
+  const [showRcJwt, setShowRcJwt] = useState(false);
 
   // SMS Status check
   const { data: smsStatus } = useQuery<{
     enabled: boolean;
+    provider: "twilio" | "ringcentral";
     configured: boolean;
     initialized: boolean;
     fromNumber: string | null;
@@ -527,10 +540,20 @@ export default function Settings() {
     };
 
     setSmsSettings({
+      // Provider selection
+      smsProvider: (getValue("sms_provider", "twilio") as "twilio" | "ringcentral"),
+      // Twilio credentials
       twilioAccountSid: getValue("twilio_account_sid", ""),
       twilioAuthToken: getValue("twilio_auth_token", ""),
       twilioFromNumber: getValue("twilio_from_number", ""),
       twilioMessagingServiceSid: getValue("twilio_messaging_service_sid", ""),
+      // RingCentral credentials
+      ringcentralClientId: getValue("ringcentral_client_id", ""),
+      ringcentralClientSecret: getValue("ringcentral_client_secret", ""),
+      ringcentralJwt: getValue("ringcentral_jwt", ""),
+      ringcentralFromNumber: getValue("ringcentral_from_number", ""),
+      ringcentralServerUrl: getValue("ringcentral_server_url", "https://platform.ringcentral.com"),
+      // General settings
       smsEnabled: getValue("sms_enabled", "false") === "true",
       smsDailyLimit: getValue("sms_daily_limit", "1000"),
       notifyOnNewShift: getValue("notify_on_new_shift", "true") === "true",
@@ -929,9 +952,12 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Phone className="h-5 w-5" />
-                    <CardTitle>SMS Messaging (Twilio)</CardTitle>
+                    <CardTitle>SMS Messaging</CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="capitalize">
+                      {smsStatus?.provider || smsSettings.smsProvider}
+                    </Badge>
                     {smsStatus?.configured ? (
                       smsStatus.initialized ? (
                         <Badge variant="default" className="bg-green-500">
@@ -951,7 +977,7 @@ export default function Settings() {
                     )}
                   </div>
                 </div>
-                <CardDescription>Configure Twilio integration for SMS notifications</CardDescription>
+                <CardDescription>Configure SMS provider integration for notifications</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Master Toggle */}
@@ -974,82 +1000,249 @@ export default function Settings() {
 
                 <Separator />
 
-                {/* Twilio Credentials */}
+                {/* Provider Selection */}
                 <div className="space-y-4">
-                  <h4 className="font-medium">Twilio Credentials</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="twilio-sid">Account SID</Label>
-                      <Input
-                        id="twilio-sid"
-                        value={smsSettings.twilioAccountSid}
-                        onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioAccountSid: e.target.value }))}
-                        placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                        data-testid="input-twilio-sid"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="twilio-token">Auth Token</Label>
-                      <div className="relative">
-                        <Input
-                          id="twilio-token"
-                          type={showAuthToken ? "text" : "password"}
-                          value={smsSettings.twilioAuthToken}
-                          onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioAuthToken: e.target.value }))}
-                          placeholder="Enter auth token"
-                          data-testid="input-twilio-token"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-0 top-0 h-full px-3"
-                          onClick={() => setShowAuthToken(!showAuthToken)}
-                        >
-                          {showAuthToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="twilio-from">From Phone Number</Label>
-                      <Input
-                        id="twilio-from"
-                        value={smsSettings.twilioFromNumber}
-                        onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioFromNumber: e.target.value }))}
-                        placeholder="+15551234567"
-                        data-testid="input-twilio-from"
-                      />
-                      <p className="text-xs text-muted-foreground">Your Twilio phone number in E.164 format</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="twilio-service">Messaging Service SID (Optional)</Label>
-                      <Input
-                        id="twilio-service"
-                        value={smsSettings.twilioMessagingServiceSid}
-                        onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioMessagingServiceSid: e.target.value }))}
-                        placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                        data-testid="input-twilio-service"
-                      />
-                      <p className="text-xs text-muted-foreground">For high-volume sending</p>
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={async () => {
-                        await updateSettingMutation.mutateAsync({ key: "twilio_account_sid", value: smsSettings.twilioAccountSid });
-                        await updateSettingMutation.mutateAsync({ key: "twilio_auth_token", value: smsSettings.twilioAuthToken });
-                        await updateSettingMutation.mutateAsync({ key: "twilio_from_number", value: smsSettings.twilioFromNumber });
-                        await updateSettingMutation.mutateAsync({ key: "twilio_messaging_service_sid", value: smsSettings.twilioMessagingServiceSid });
+                  <h4 className="font-medium">SMS Provider</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSmsSettings(prev => ({ ...prev, smsProvider: "twilio" }));
+                        updateSettingMutation.mutate({ key: "sms_provider", value: "twilio" });
                         queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
                       }}
-                      disabled={updateSettingMutation.isPending}
-                      data-testid="button-save-twilio"
+                      className={`p-4 rounded-lg border-2 transition-colors text-left ${
+                        smsSettings.smsProvider === "twilio"
+                          ? "border-primary bg-primary/5"
+                          : "border-muted hover:border-muted-foreground/30"
+                      }`}
+                      data-testid="button-provider-twilio"
                     >
-                      {updateSettingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      Save Credentials
-                    </Button>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold">Twilio</span>
+                        {smsSettings.smsProvider === "twilio" && (
+                          <CheckCircle2 className="h-5 w-5 text-primary" />
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Industry-leading SMS API with global reach and excellent deliverability
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSmsSettings(prev => ({ ...prev, smsProvider: "ringcentral" }));
+                        updateSettingMutation.mutate({ key: "sms_provider", value: "ringcentral" });
+                        queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+                      }}
+                      className={`p-4 rounded-lg border-2 transition-colors text-left ${
+                        smsSettings.smsProvider === "ringcentral"
+                          ? "border-primary bg-primary/5"
+                          : "border-muted hover:border-muted-foreground/30"
+                      }`}
+                      data-testid="button-provider-ringcentral"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold">RingCentral</span>
+                        {smsSettings.smsProvider === "ringcentral" && (
+                          <CheckCircle2 className="h-5 w-5 text-primary" />
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Unified communications platform with SMS, voice, and team messaging
+                      </p>
+                    </button>
                   </div>
                 </div>
+
+                <Separator />
+
+                {/* Twilio Credentials */}
+                {smsSettings.smsProvider === "twilio" && (
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Twilio Credentials</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="twilio-sid">Account SID</Label>
+                        <Input
+                          id="twilio-sid"
+                          value={smsSettings.twilioAccountSid}
+                          onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioAccountSid: e.target.value }))}
+                          placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                          data-testid="input-twilio-sid"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="twilio-token">Auth Token</Label>
+                        <div className="relative">
+                          <Input
+                            id="twilio-token"
+                            type={showAuthToken ? "text" : "password"}
+                            value={smsSettings.twilioAuthToken}
+                            onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioAuthToken: e.target.value }))}
+                            placeholder="Enter auth token"
+                            data-testid="input-twilio-token"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3"
+                            onClick={() => setShowAuthToken(!showAuthToken)}
+                          >
+                            {showAuthToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="twilio-from">From Phone Number</Label>
+                        <Input
+                          id="twilio-from"
+                          value={smsSettings.twilioFromNumber}
+                          onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioFromNumber: e.target.value }))}
+                          placeholder="+15551234567"
+                          data-testid="input-twilio-from"
+                        />
+                        <p className="text-xs text-muted-foreground">Your Twilio phone number in E.164 format</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="twilio-service">Messaging Service SID (Optional)</Label>
+                        <Input
+                          id="twilio-service"
+                          value={smsSettings.twilioMessagingServiceSid}
+                          onChange={(e) => setSmsSettings(prev => ({ ...prev, twilioMessagingServiceSid: e.target.value }))}
+                          placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                          data-testid="input-twilio-service"
+                        />
+                        <p className="text-xs text-muted-foreground">For high-volume sending</p>
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={async () => {
+                          await updateSettingMutation.mutateAsync({ key: "twilio_account_sid", value: smsSettings.twilioAccountSid });
+                          await updateSettingMutation.mutateAsync({ key: "twilio_auth_token", value: smsSettings.twilioAuthToken });
+                          await updateSettingMutation.mutateAsync({ key: "twilio_from_number", value: smsSettings.twilioFromNumber });
+                          await updateSettingMutation.mutateAsync({ key: "twilio_messaging_service_sid", value: smsSettings.twilioMessagingServiceSid });
+                          queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+                        }}
+                        disabled={updateSettingMutation.isPending}
+                        data-testid="button-save-twilio"
+                      >
+                        {updateSettingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        Save Twilio Credentials
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* RingCentral Credentials */}
+                {smsSettings.smsProvider === "ringcentral" && (
+                  <div className="space-y-4">
+                    <h4 className="font-medium">RingCentral Credentials</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="rc-client-id">Client ID</Label>
+                        <Input
+                          id="rc-client-id"
+                          value={smsSettings.ringcentralClientId}
+                          onChange={(e) => setSmsSettings(prev => ({ ...prev, ringcentralClientId: e.target.value }))}
+                          placeholder="Enter client ID"
+                          data-testid="input-rc-client-id"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="rc-client-secret">Client Secret</Label>
+                        <div className="relative">
+                          <Input
+                            id="rc-client-secret"
+                            type={showRcSecret ? "text" : "password"}
+                            value={smsSettings.ringcentralClientSecret}
+                            onChange={(e) => setSmsSettings(prev => ({ ...prev, ringcentralClientSecret: e.target.value }))}
+                            placeholder="Enter client secret"
+                            data-testid="input-rc-client-secret"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3"
+                            onClick={() => setShowRcSecret(!showRcSecret)}
+                          >
+                            {showRcSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="rc-jwt">JWT Token</Label>
+                        <div className="relative">
+                          <Input
+                            id="rc-jwt"
+                            type={showRcJwt ? "text" : "password"}
+                            value={smsSettings.ringcentralJwt}
+                            onChange={(e) => setSmsSettings(prev => ({ ...prev, ringcentralJwt: e.target.value }))}
+                            placeholder="Enter JWT token for authentication"
+                            data-testid="input-rc-jwt"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3"
+                            onClick={() => setShowRcJwt(!showRcJwt)}
+                          >
+                            {showRcJwt ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Generate a JWT token in your RingCentral Developer Portal</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="rc-from">From Phone Number</Label>
+                        <Input
+                          id="rc-from"
+                          value={smsSettings.ringcentralFromNumber}
+                          onChange={(e) => setSmsSettings(prev => ({ ...prev, ringcentralFromNumber: e.target.value }))}
+                          placeholder="+15551234567"
+                          data-testid="input-rc-from"
+                        />
+                        <p className="text-xs text-muted-foreground">Your RingCentral SMS-enabled phone number</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="rc-server">Server URL</Label>
+                        <Select
+                          value={smsSettings.ringcentralServerUrl}
+                          onValueChange={(value) => setSmsSettings(prev => ({ ...prev, ringcentralServerUrl: value }))}
+                        >
+                          <SelectTrigger data-testid="select-rc-server">
+                            <SelectValue placeholder="Select server" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="https://platform.ringcentral.com">Production</SelectItem>
+                            <SelectItem value="https://platform.devtest.ringcentral.com">Sandbox</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">Use Sandbox for testing, Production for live</p>
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={async () => {
+                          await updateSettingMutation.mutateAsync({ key: "ringcentral_client_id", value: smsSettings.ringcentralClientId });
+                          await updateSettingMutation.mutateAsync({ key: "ringcentral_client_secret", value: smsSettings.ringcentralClientSecret });
+                          await updateSettingMutation.mutateAsync({ key: "ringcentral_jwt", value: smsSettings.ringcentralJwt });
+                          await updateSettingMutation.mutateAsync({ key: "ringcentral_from_number", value: smsSettings.ringcentralFromNumber });
+                          await updateSettingMutation.mutateAsync({ key: "ringcentral_server_url", value: smsSettings.ringcentralServerUrl });
+                          queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+                        }}
+                        disabled={updateSettingMutation.isPending}
+                        data-testid="button-save-ringcentral"
+                      >
+                        {updateSettingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                        Save RingCentral Credentials
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 <Separator />
 

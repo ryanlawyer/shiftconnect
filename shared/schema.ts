@@ -128,6 +128,10 @@ export const messages = pgTable("messages", {
   direction: text("direction").notNull(), // inbound, outbound
   content: text("content").notNull(),
   status: text("status").notNull().default("pending"), // pending, queued, sent, delivered, undelivered, failed
+  // Provider-agnostic message tracking
+  providerMessageId: text("provider_message_id"), // Message ID from provider (Twilio SID, RingCentral ID, etc.)
+  smsProvider: text("sms_provider").default("twilio"), // twilio, ringcentral
+  // Legacy field for backwards compatibility (will be removed in future)
   twilioSid: text("twilio_sid"),
   // Delivery tracking fields
   deliveryStatus: text("delivery_status"), // queued, sent, delivered, undelivered, failed, canceled

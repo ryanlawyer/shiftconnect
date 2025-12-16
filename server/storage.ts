@@ -86,6 +86,7 @@ export interface IStorage {
   createMessage(message: InsertMessage): Promise<Message>;
   updateMessage(id: string, updates: Partial<Message>): Promise<Message | undefined>;
   getMessageByTwilioSid(twilioSid: string): Promise<Message | undefined>;
+  getMessageByProviderMessageId(providerMessageId: string): Promise<Message | undefined>;
   getMessageThread(threadId: string): Promise<Message[]>;
 
   // Trainings
@@ -1119,6 +1120,10 @@ export class MemStorage implements IStorage {
       direction: insertMessage.direction,
       content: insertMessage.content,
       status: insertMessage.status ?? "pending",
+      // Provider-agnostic message tracking
+      providerMessageId: insertMessage.providerMessageId ?? null,
+      smsProvider: insertMessage.smsProvider ?? "twilio",
+      // Legacy field for backwards compatibility
       twilioSid: insertMessage.twilioSid ?? null,
       // Delivery tracking
       deliveryStatus: insertMessage.deliveryStatus ?? null,
@@ -1148,6 +1153,13 @@ export class MemStorage implements IStorage {
 
   async getMessageByTwilioSid(twilioSid: string): Promise<Message | undefined> {
     return Array.from(this.messages.values()).find(m => m.twilioSid === twilioSid);
+  }
+
+  async getMessageByProviderMessageId(providerMessageId: string): Promise<Message | undefined> {
+    // Search by providerMessageId first, fall back to twilioSid for backwards compatibility
+    return Array.from(this.messages.values()).find(
+      m => m.providerMessageId === providerMessageId || m.twilioSid === providerMessageId
+    );
   }
 
   async getMessageThread(threadId: string): Promise<Message[]> {

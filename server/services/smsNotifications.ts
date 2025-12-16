@@ -1,16 +1,29 @@
 import { storage } from "../storage";
-import { twilioService, type SendSMSResult } from "./twilio";
+import { smsProvider, type SendSMSResult, type SMSProviderType } from "./sms";
 import { logAuditEvent } from "../audit";
 import { randomUUID } from "crypto";
 import type { Shift, Employee, Area } from "@shared/schema";
-import { getRenderedTemplate, renderTemplate } from "./smsTemplates";
+import { getRenderedTemplate } from "./smsTemplates";
 
 // Types for SMS operations
 interface SMSSettings {
+  // Provider selection
+  smsProvider: SMSProviderType;
+
+  // Twilio configuration
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioFromNumber: string;
   twilioMessagingServiceSid: string;
+
+  // RingCentral configuration
+  ringcentralClientId: string;
+  ringcentralClientSecret: string;
+  ringcentralServerUrl: string;
+  ringcentralJwt: string;
+  ringcentralFromNumber: string;
+
+  // General SMS settings
   smsEnabled: boolean;
   smsDailyLimit: number;
   notifyOnNewShift: boolean;
@@ -26,15 +39,28 @@ interface SMSSettings {
 async function getSMSSettings(): Promise<SMSSettings> {
   const settings = await storage.getSettings();
   const getValue = (key: string, defaultValue: string = ""): string => {
-    const setting = settings.find(s => s.key === key);
+    const setting = settings.find((s) => s.key === key);
     return setting?.value ?? defaultValue;
   };
 
   return {
+    // Provider selection (default to twilio for backwards compatibility)
+    smsProvider: (getValue("sms_provider", "twilio") as SMSProviderType) || "twilio",
+
+    // Twilio configuration
     twilioAccountSid: getValue("twilio_account_sid"),
     twilioAuthToken: getValue("twilio_auth_token"),
     twilioFromNumber: getValue("twilio_from_number"),
     twilioMessagingServiceSid: getValue("twilio_messaging_service_sid"),
+
+    // RingCentral configuration
+    ringcentralClientId: getValue("ringcentral_client_id"),
+    ringcentralClientSecret: getValue("ringcentral_client_secret"),
+    ringcentralServerUrl: getValue("ringcentral_server_url", "https://platform.ringcentral.com"),
+    ringcentralJwt: getValue("ringcentral_jwt"),
+    ringcentralFromNumber: getValue("ringcentral_from_number"),
+
+    // General SMS settings
     smsEnabled: getValue("sms_enabled", "false") === "true",
     smsDailyLimit: parseInt(getValue("sms_daily_limit", "1000")),
     notifyOnNewShift: getValue("notify_on_new_shift", "true") === "true",
@@ -47,27 +73,54 @@ async function getSMSSettings(): Promise<SMSSettings> {
   };
 }
 
-// Initialize Twilio service with current settings
-async function initializeTwilio(): Promise<boolean> {
+// Initialize SMS provider with current settings
+async function initializeSMSProvider(): Promise<boolean> {
   const settings = await getSMSSettings();
 
   if (!settings.smsEnabled) {
     return false;
   }
 
-  if (!settings.twilioAccountSid || !settings.twilioAuthToken || !settings.twilioFromNumber) {
-    return false;
-  }
-
   try {
-    twilioService.initialize({
-      accountSid: settings.twilioAccountSid,
-      authToken: settings.twilioAuthToken,
-      fromNumber: settings.twilioFromNumber,
-      messagingServiceSid: settings.twilioMessagingServiceSid || undefined,
-    });
-    return true;
-  } catch {
+    if (settings.smsProvider === "ringcentral") {
+      // Validate RingCentral configuration
+      if (
+        !settings.ringcentralClientId ||
+        !settings.ringcentralClientSecret ||
+        !settings.ringcentralJwt ||
+        !settings.ringcentralFromNumber
+      ) {
+        console.log("RingCentral configuration incomplete");
+        return false;
+      }
+
+      smsProvider.initialize({
+        provider: "ringcentral",
+        fromNumber: settings.ringcentralFromNumber,
+        ringcentralClientId: settings.ringcentralClientId,
+        ringcentralClientSecret: settings.ringcentralClientSecret,
+        ringcentralServerUrl: settings.ringcentralServerUrl,
+        ringcentralJwt: settings.ringcentralJwt,
+      });
+    } else {
+      // Default to Twilio
+      if (!settings.twilioAccountSid || !settings.twilioAuthToken || !settings.twilioFromNumber) {
+        console.log("Twilio configuration incomplete");
+        return false;
+      }
+
+      smsProvider.initialize({
+        provider: "twilio",
+        fromNumber: settings.twilioFromNumber,
+        twilioAccountSid: settings.twilioAccountSid,
+        twilioAuthToken: settings.twilioAuthToken,
+        twilioMessagingServiceSid: settings.twilioMessagingServiceSid || undefined,
+      });
+    }
+
+    return smsProvider.isInitialized();
+  } catch (error) {
+    console.error("Failed to initialize SMS provider:", error);
     return false;
   }
 }
@@ -113,20 +166,23 @@ export async function notifyNewShift(
   }
 
   // Check quiet hours
-  if (settings.smsRespectQuietHours && isQuietHours(settings.smsQuietHoursStart, settings.smsQuietHoursEnd)) {
+  if (
+    settings.smsRespectQuietHours &&
+    isQuietHours(settings.smsQuietHoursStart, settings.smsQuietHoursEnd)
+  ) {
     console.log("Skipping new shift notification during quiet hours");
     return { sent: 0, failed: 0 };
   }
 
-  // Initialize Twilio
-  const initialized = await initializeTwilio();
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
   if (!initialized) {
-    console.log("Twilio not initialized, skipping notifications");
+    console.log("SMS provider not initialized, skipping notifications");
     return { sent: 0, failed: 0 };
   }
 
   // Filter to only active, opted-in employees
-  const eligibleRecipients = recipients.filter(e => e.status === "active" && e.smsOptIn);
+  const eligibleRecipients = recipients.filter((e) => e.status === "active" && e.smsOptIn);
 
   let sent = 0;
   let failed = 0;
@@ -136,9 +192,14 @@ export async function notifyNewShift(
     shift,
     area,
   });
-  const message = templateMessage || `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nLog in to claim this shift.`;
+  const message =
+    templateMessage ||
+    `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nLog in to claim this shift.`;
 
-  const statusCallback = webhookBaseUrl ? `${webhookBaseUrl}/api/webhooks/twilio/status` : undefined;
+  // Build status callback URL based on provider
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
 
   for (const employee of eligibleRecipients) {
     try {
@@ -153,12 +214,13 @@ export async function notifyNewShift(
         threadId: randomUUID(),
       });
 
-      // Send SMS
-      const result = await twilioService.sendSMS(employee.phone, message, statusCallback);
+      // Send SMS using provider abstraction
+      const result = await smsProvider.sendSMS(employee.phone, message, statusCallback);
 
       // Update message with result
       await storage.updateMessage(messageRecord.id, {
-        twilioSid: result.twilioSid || null,
+        providerMessageId: result.messageId || result.providerMessageId || null,
+        smsProvider: settings.smsProvider,
         status: result.success ? "sent" : "failed",
         deliveryStatus: result.status || null,
         errorCode: result.errorCode || null,
@@ -173,7 +235,7 @@ export async function notifyNewShift(
       }
 
       // Small delay to respect rate limits
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     } catch (error) {
       console.error(`Failed to send notification to ${employee.name}:`, error);
       failed++;
@@ -189,6 +251,7 @@ export async function notifyNewShift(
     targetName: formatShiftDetails(shift, area),
     details: {
       type: "shift_notification",
+      provider: settings.smsProvider,
       recipientCount: eligibleRecipients.length,
       sent,
       failed,
@@ -220,10 +283,10 @@ export async function notifyShiftAssigned(
     return { success: false, errorMessage: "Employee opted out of SMS" };
   }
 
-  // Initialize Twilio
-  const initialized = await initializeTwilio();
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
   if (!initialized) {
-    return { success: false, errorMessage: "Twilio not initialized" };
+    return { success: false, errorMessage: "SMS provider not initialized" };
   }
 
   // Try to get template, fall back to hardcoded message
@@ -232,9 +295,13 @@ export async function notifyShiftAssigned(
     employee,
     area,
   });
-  const message = templateMessage || `[ShiftConnect] Shift Confirmed!\nYou're scheduled for:\n${formatShiftDetails(shift, area)}\nQuestions? Contact your supervisor.`;
+  const message =
+    templateMessage ||
+    `[ShiftConnect] Shift Confirmed!\nYou're scheduled for:\n${formatShiftDetails(shift, area)}\nQuestions? Contact your supervisor.`;
 
-  const statusCallback = webhookBaseUrl ? `${webhookBaseUrl}/api/webhooks/twilio/status` : undefined;
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
 
   try {
     // Create message record
@@ -248,12 +315,13 @@ export async function notifyShiftAssigned(
       threadId: randomUUID(),
     });
 
-    // Send SMS
-    const result = await twilioService.sendSMSWithRetry(employee.phone, message, statusCallback);
+    // Send SMS using provider abstraction with retry
+    const result = await smsProvider.sendSMSWithRetry(employee.phone, message, statusCallback);
 
     // Update message with result
     await storage.updateMessage(messageRecord.id, {
-      twilioSid: result.twilioSid || null,
+      providerMessageId: result.messageId || result.providerMessageId || null,
+      smsProvider: settings.smsProvider,
       status: result.success ? "sent" : "failed",
       deliveryStatus: result.status || null,
       errorCode: result.errorCode || null,
@@ -270,8 +338,9 @@ export async function notifyShiftAssigned(
       targetName: employee.name,
       details: {
         type: "shift_confirmation",
+        provider: settings.smsProvider,
         shiftId: shift.id,
-        twilioSid: result.twilioSid,
+        messageId: result.messageId,
         errorCode: result.errorCode,
       },
       ipAddress: undefined,
@@ -305,10 +374,10 @@ export async function sendShiftReminder(
     return { success: false, errorMessage: "Employee opted out of SMS" };
   }
 
-  // Initialize Twilio
-  const initialized = await initializeTwilio();
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
   if (!initialized) {
-    return { success: false, errorMessage: "Twilio not initialized" };
+    return { success: false, errorMessage: "SMS provider not initialized" };
   }
 
   // Try to get template, fall back to hardcoded message
@@ -317,9 +386,13 @@ export async function sendShiftReminder(
     employee,
     area,
   });
-  const message = templateMessage || `[ShiftConnect] Reminder: Your shift starts soon!\n${formatShiftDetails(shift, area)}\nPlease arrive on time.`;
+  const message =
+    templateMessage ||
+    `[ShiftConnect] Reminder: Your shift starts soon!\n${formatShiftDetails(shift, area)}\nPlease arrive on time.`;
 
-  const statusCallback = webhookBaseUrl ? `${webhookBaseUrl}/api/webhooks/twilio/status` : undefined;
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
 
   try {
     // Create message record
@@ -333,12 +406,13 @@ export async function sendShiftReminder(
       threadId: randomUUID(),
     });
 
-    // Send SMS
-    const result = await twilioService.sendSMSWithRetry(employee.phone, message, statusCallback);
+    // Send SMS using provider abstraction with retry
+    const result = await smsProvider.sendSMSWithRetry(employee.phone, message, statusCallback);
 
     // Update message with result
     await storage.updateMessage(messageRecord.id, {
-      twilioSid: result.twilioSid || null,
+      providerMessageId: result.messageId || result.providerMessageId || null,
+      smsProvider: settings.smsProvider,
       status: result.success ? "sent" : "failed",
       deliveryStatus: result.status || null,
       errorCode: result.errorCode || null,
@@ -368,10 +442,10 @@ export async function notifyShiftFilledToOthers(
     return { sent: 0, failed: 0 };
   }
 
-  // Initialize Twilio
-  const initialized = await initializeTwilio();
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
   if (!initialized) {
-    console.log("Twilio not initialized, skipping shift filled notifications");
+    console.log("SMS provider not initialized, skipping shift filled notifications");
     return { sent: 0, failed: 0 };
   }
 
@@ -381,8 +455,8 @@ export async function notifyShiftFilledToOthers(
 
   // Filter out the assigned employee and get employee objects
   const otherInterestedIds = interests
-    .filter(i => i.employeeId !== assignedEmployeeId)
-    .map(i => i.employeeId);
+    .filter((i) => i.employeeId !== assignedEmployeeId)
+    .map((i) => i.employeeId);
 
   if (otherInterestedIds.length === 0) {
     return { sent: 0, failed: 0 };
@@ -390,7 +464,7 @@ export async function notifyShiftFilledToOthers(
 
   const employees = await storage.getEmployees();
   const otherInterested = employees.filter(
-    e => otherInterestedIds.includes(e.id) && e.smsOptIn && e.status === "active"
+    (e) => otherInterestedIds.includes(e.id) && e.smsOptIn && e.status === "active"
   );
 
   if (otherInterested.length === 0) {
@@ -400,11 +474,13 @@ export async function notifyShiftFilledToOthers(
   let sent = 0;
   let failed = 0;
 
-  const statusCallback = webhookBaseUrl ? `${webhookBaseUrl}/api/webhooks/twilio/status` : undefined;
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
 
   for (const employee of otherInterested) {
     // Compose message - no template needed, this is a system notification
-    const message = `[ShiftConnect] Update: The shift on ${shift.date} (${shift.startTime}-${shift.endTime}) at ${shift.location}${area ? ` (${area.name})` : ''} has been filled.\n\nYou'll be notified of new available shifts. Reply SHIFTS to see current openings.`;
+    const message = `[ShiftConnect] Update: The shift on ${shift.date} (${shift.startTime}-${shift.endTime}) at ${shift.location}${area ? ` (${area.name})` : ""} has been filled.\n\nYou'll be notified of new available shifts. Reply SHIFTS to see current openings.`;
 
     try {
       // Create message record
@@ -418,12 +494,13 @@ export async function notifyShiftFilledToOthers(
         threadId: randomUUID(),
       });
 
-      // Send SMS
-      const result = await twilioService.sendSMS(employee.phone, message, statusCallback);
+      // Send SMS using provider abstraction
+      const result = await smsProvider.sendSMS(employee.phone, message, statusCallback);
 
       // Update message with result
       await storage.updateMessage(messageRecord.id, {
-        twilioSid: result.twilioSid || null,
+        providerMessageId: result.messageId || result.providerMessageId || null,
+        smsProvider: settings.smsProvider,
         status: result.success ? "sent" : "failed",
         deliveryStatus: result.status || null,
         errorCode: result.errorCode || null,
@@ -438,7 +515,7 @@ export async function notifyShiftFilledToOthers(
       }
 
       // Small delay to respect rate limits
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     } catch (error) {
       console.error(`Failed to send shift filled notification to ${employee.name}:`, error);
       failed++;
@@ -455,6 +532,7 @@ export async function notifyShiftFilledToOthers(
       targetName: formatShiftDetails(shift, area),
       details: {
         type: "shift_filled_notification",
+        provider: settings.smsProvider,
         recipientCount: otherInterested.length,
         sent,
         failed,
@@ -466,4 +544,33 @@ export async function notifyShiftFilledToOthers(
   return { sent, failed };
 }
 
-export { getSMSSettings, initializeTwilio, isQuietHours };
+/**
+ * Get the currently configured SMS provider type
+ */
+export async function getCurrentSMSProvider(): Promise<SMSProviderType | null> {
+  const settings = await getSMSSettings();
+  if (!settings.smsEnabled) return null;
+  return settings.smsProvider;
+}
+
+/**
+ * Check if SMS is configured and ready to use
+ */
+export async function isSMSConfigured(): Promise<boolean> {
+  const settings = await getSMSSettings();
+  if (!settings.smsEnabled) return false;
+
+  if (settings.smsProvider === "ringcentral") {
+    return !!(
+      settings.ringcentralClientId &&
+      settings.ringcentralClientSecret &&
+      settings.ringcentralJwt &&
+      settings.ringcentralFromNumber
+    );
+  }
+
+  // Twilio
+  return !!(settings.twilioAccountSid && settings.twilioAuthToken && settings.twilioFromNumber);
+}
+
+export { getSMSSettings, initializeSMSProvider, isQuietHours };
