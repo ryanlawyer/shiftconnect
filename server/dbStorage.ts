@@ -85,6 +85,80 @@ export class DatabaseStorage implements IStorage {
         employeeId: adminEmployee.id,
       });
     }
+
+    // Create default SMS templates if they don't exist
+    const existingTemplates = await db.select().from(smsTemplates);
+    if (existingTemplates.length === 0) {
+      const defaultTemplates: InsertSmsTemplate[] = [
+        {
+          name: "New Shift Available",
+          description: "Sent when a new open shift is posted",
+          category: "shift_notification",
+          content: "ShiftConnect: A new {{shiftType}} shift is available on {{date}} from {{startTime}} to {{endTime}} at {{location}}. Reply YES to express interest or view details at {{appUrl}}.",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Shift Reminder",
+          description: "Sent as a reminder before assigned shift",
+          category: "shift_reminder",
+          content: "ShiftConnect Reminder: You have a shift on {{date}} from {{startTime}} to {{endTime}} at {{location}}. Please confirm your attendance.",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Shift Confirmation",
+          description: "Sent when an employee is assigned to a shift",
+          category: "shift_confirmation",
+          content: "ShiftConnect: You have been assigned to the {{shiftType}} shift on {{date}} from {{startTime}} to {{endTime}} at {{location}}. Thank you!",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Shift Interest Received",
+          description: "Confirmation when employee expresses interest in a shift",
+          category: "shift_interest",
+          content: "ShiftConnect: Your interest in the {{date}} shift at {{location}} has been received. You will be notified if you are assigned.",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Shift Cancelled",
+          description: "Sent when a shift is cancelled",
+          category: "shift_cancellation",
+          content: "ShiftConnect: The shift on {{date}} from {{startTime}} to {{endTime}} at {{location}} has been cancelled. We apologize for any inconvenience.",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Bulk Notification",
+          description: "General template for bulk messages",
+          category: "bulk",
+          content: "ShiftConnect: {{message}}",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Training Reminder",
+          description: "Sent as a reminder for upcoming training",
+          category: "training_reminder",
+          content: "ShiftConnect: Reminder - You have {{trainingTitle}} training scheduled for {{date}} at {{time}}. Location: {{location}}.",
+          isSystem: true,
+          isActive: true,
+        },
+        {
+          name: "Welcome Message",
+          description: "Sent when a new employee is added to the system",
+          category: "welcome",
+          content: "Welcome to ShiftConnect, {{employeeName}}! You are now set up to receive shift notifications. Reply STOP to opt out at any time.",
+          isSystem: true,
+          isActive: true,
+        },
+      ];
+      for (const template of defaultTemplates) {
+        await this.createSmsTemplate(template);
+      }
+    }
   }
 
   async getUser(id: string): Promise<User | undefined> {

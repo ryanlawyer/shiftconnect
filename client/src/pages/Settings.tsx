@@ -289,6 +289,8 @@ export default function Settings() {
   const [showAuthToken, setShowAuthToken] = useState(false);
   const [showRcSecret, setShowRcSecret] = useState(false);
   const [showRcJwt, setShowRcJwt] = useState(false);
+  const [testPhoneNumber, setTestPhoneNumber] = useState("");
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // SMS Status check
   const { data: smsStatus } = useQuery<{
@@ -392,6 +394,23 @@ export default function Settings() {
     onSuccess: (result) => {
       setTemplateValidation({ valid: result.valid, errors: result.errors });
       setTemplatePreview(result.preview);
+    },
+  });
+
+  const testSmsMutation = useMutation({
+    mutationFn: async (testPhone: string) => {
+      const response = await apiRequest("POST", "/api/sms/test", { testPhoneNumber: testPhone });
+      return response.json() as Promise<{ success: boolean; message: string; details?: Record<string, unknown> }>;
+    },
+    onSuccess: (result) => {
+      setTestResult({ success: result.success, message: result.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+      toast({ title: result.success ? "Test Successful" : "Test Failed", description: result.message, variant: result.success ? "default" : "destructive" });
+    },
+    onError: (error: any) => {
+      const message = error.message || "Failed to send test SMS";
+      setTestResult({ success: false, message });
+      toast({ title: "Test Failed", description: message, variant: "destructive" });
     },
   });
 
@@ -1315,6 +1334,57 @@ export default function Settings() {
                     </div>
                   </div>
                 )}
+
+                <Separator />
+
+                {/* Test SMS Credentials */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Test SMS Integration</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Send a test message to verify your {smsSettings.smsProvider} credentials are working correctly.
+                  </p>
+                  <div className="flex gap-4 items-end">
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="test-phone">Test Phone Number</Label>
+                      <Input
+                        id="test-phone"
+                        value={testPhoneNumber}
+                        onChange={(e) => {
+                          setTestPhoneNumber(e.target.value);
+                          setTestResult(null);
+                        }}
+                        placeholder="+15551234567"
+                        data-testid="input-test-phone"
+                      />
+                      <p className="text-xs text-muted-foreground">Enter a phone number to receive the test SMS</p>
+                    </div>
+                    <Button
+                      onClick={() => testSmsMutation.mutate(testPhoneNumber)}
+                      disabled={testSmsMutation.isPending || !testPhoneNumber || !smsStatus?.configured}
+                      data-testid="button-test-sms"
+                    >
+                      {testSmsMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      Send Test SMS
+                    </Button>
+                  </div>
+                  {testResult && (
+                    <div className={`p-3 rounded-lg flex items-center gap-2 ${testResult.success ? 'bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800'}`}>
+                      {testResult.success ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                      )}
+                      <span className={testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}>
+                        {testResult.message}
+                      </span>
+                    </div>
+                  )}
+                  {!smsStatus?.configured && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      Please configure and save your {smsSettings.smsProvider} credentials before testing.
+                    </p>
+                  )}
+                </div>
 
                 <Separator />
 

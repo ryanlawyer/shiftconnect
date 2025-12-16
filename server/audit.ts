@@ -34,9 +34,10 @@ export type AuditAction =
   | "shift_confirmed_via_sms"
   | "shift_interest_cancelled_via_sms"
   | "shift_cancelled_via_sms"
+  | "sms_test"
   | "setting_updated";
 
-export type TargetType = "role" | "shift" | "user" | "employee" | "area" | "position" | "message" | "setting";
+export type TargetType = "role" | "shift" | "user" | "employee" | "area" | "position" | "message" | "setting" | "sms_provider";
 
 interface AuditLogParams {
   action: AuditAction;

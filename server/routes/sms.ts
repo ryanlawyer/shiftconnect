@@ -541,6 +541,117 @@ router.get("/status", async (req, res) => {
   });
 });
 
+// === Test SMS Credentials ===
+router.post("/test", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Admin access required", error: "Admin access required" });
+  }
+
+  const { testPhoneNumber } = req.body;
+
+  if (!testPhoneNumber) {
+    return res.status(400).json({ success: false, message: "Test phone number is required", error: "Test phone number is required" });
+  }
+
+  const settings = await getSMSSettings();
+
+  // Check if provider is configured
+  let configured = false;
+  let providerName = settings.smsProvider;
+
+  if (settings.smsProvider === "ringcentral") {
+    configured = !!(
+      settings.ringcentralClientId &&
+      settings.ringcentralClientSecret &&
+      settings.ringcentralJwt &&
+      settings.ringcentralFromNumber
+    );
+  } else {
+    configured = !!(settings.twilioAccountSid && settings.twilioAuthToken && settings.twilioFromNumber);
+  }
+
+  if (!configured) {
+    return res.status(400).json({
+      success: false,
+      message: `${providerName} credentials are not fully configured`,
+      error: `${providerName} credentials are not fully configured`,
+      details: {
+        provider: providerName,
+        configured: false,
+      },
+    });
+  }
+
+  try {
+    // Initialize SMS provider
+    const initialized = await initializeSMSProvider();
+    if (!initialized) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to initialize SMS provider",
+        error: "Failed to initialize SMS provider",
+        details: {
+          provider: providerName,
+          initialized: false,
+        },
+      });
+    }
+
+    // Send test message
+    const testMessage = `ShiftConnect Test: Your ${providerName} SMS integration is working correctly. Sent at ${new Date().toLocaleTimeString()}.`;
+    const result = await smsProvider.sendSMS(testPhoneNumber, testMessage);
+
+    if (result.success) {
+      // Log the test
+      await logAuditEvent({
+        action: "sms_test",
+        actor: user,
+        targetType: "sms_provider",
+        targetId: providerName,
+        targetName: `${providerName} SMS Test`,
+        details: {
+          testPhone: `***${testPhoneNumber.slice(-4)}`,
+          messageId: result.messageId,
+          status: result.status,
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: `Test SMS sent successfully via ${providerName}`,
+        details: {
+          provider: providerName,
+          messageId: result.messageId,
+          status: result.status,
+        },
+      });
+    } else {
+      const errorMsg = result.errorMessage || "Failed to send test SMS";
+      return res.status(400).json({
+        success: false,
+        message: errorMsg,
+        error: errorMsg,
+        details: {
+          provider: providerName,
+          errorCode: result.errorCode,
+        },
+      });
+    }
+  } catch (error: any) {
+    console.error("SMS test error:", error);
+    const errorMsg = error.message || "An error occurred while testing SMS";
+    return res.status(500).json({
+      success: false,
+      message: errorMsg,
+      error: errorMsg,
+      details: {
+        provider: providerName,
+      },
+    });
+  }
+});
+
 // === Send Individual SMS ===
 router.post("/send", async (req, res) => {
   const user = req.user as any;
