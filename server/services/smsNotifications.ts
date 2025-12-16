@@ -213,10 +213,14 @@ export async function notifyNewShift(
   let sent = 0;
   let failed = 0;
 
+  // Look up position for template
+  const position = await storage.getPosition(shift.positionId);
+  
   // Try to get template, fall back to hardcoded message
   const templateMessage = await getRenderedTemplate("shift_notification", {
     shift,
     area,
+    position: position ? { title: position.title } : undefined,
   });
   const message =
     templateMessage ||
@@ -315,11 +319,15 @@ export async function notifyShiftAssigned(
     return { success: false, errorMessage: "SMS provider not initialized" };
   }
 
+  // Look up position for template
+  const position = await storage.getPosition(shift.positionId);
+  
   // Try to get template, fall back to hardcoded message
   const templateMessage = await getRenderedTemplate("shift_confirmation", {
     shift,
     employee,
     area,
+    position: position ? { title: position.title } : undefined,
   });
   const message =
     templateMessage ||
@@ -406,11 +414,15 @@ export async function sendShiftReminder(
     return { success: false, errorMessage: "SMS provider not initialized" };
   }
 
+  // Look up position for template
+  const position = await storage.getPosition(shift.positionId);
+  
   // Try to get template, fall back to hardcoded message
   const templateMessage = await getRenderedTemplate("shift_reminder", {
     shift,
     employee,
     area,
+    position: position ? { title: position.title } : undefined,
   });
   const message =
     templateMessage ||

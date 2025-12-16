@@ -2,7 +2,7 @@ import { storage } from "../storage";
 import type { SmsTemplate, Shift, Employee, Area } from "@shared/schema";
 
 // Available template variables by category
-export const TEMPLATE_VARIABLES = {
+export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; description: string }>> = {
   shift_notification: [
     { name: "date", description: "Shift date" },
     { name: "startTime", description: "Shift start time" },
@@ -22,6 +22,7 @@ export const TEMPLATE_VARIABLES = {
     { name: "location", description: "Shift location" },
     { name: "area", description: "Area name (with parentheses if present)" },
     { name: "position", description: "Position title" },
+    { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
   ],
@@ -32,8 +33,40 @@ export const TEMPLATE_VARIABLES = {
     { name: "location", description: "Shift location" },
     { name: "area", description: "Area name (with parentheses if present)" },
     { name: "position", description: "Position title" },
+    { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
+  ],
+  shift_interest: [
+    { name: "date", description: "Shift date" },
+    { name: "startTime", description: "Shift start time" },
+    { name: "endTime", description: "Shift end time" },
+    { name: "location", description: "Shift location" },
+    { name: "area", description: "Area name (with parentheses if present)" },
+    { name: "position", description: "Position title" },
+    { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
+    { name: "employeeName", description: "Employee's name" },
+  ],
+  shift_cancellation: [
+    { name: "date", description: "Shift date" },
+    { name: "startTime", description: "Shift start time" },
+    { name: "endTime", description: "Shift end time" },
+    { name: "location", description: "Shift location" },
+    { name: "area", description: "Area name (with parentheses if present)" },
+    { name: "position", description: "Position title" },
+    { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
+    { name: "employeeName", description: "Employee's name" },
+  ],
+  training_reminder: [
+    { name: "trainingTitle", description: "Training session title" },
+    { name: "date", description: "Training date" },
+    { name: "time", description: "Training time" },
+    { name: "location", description: "Training location" },
+    { name: "employeeName", description: "Employee's name" },
+  ],
+  welcome: [
+    { name: "employeeName", description: "Employee's name" },
+    { name: "appUrl", description: "Application URL" },
   ],
   general: [
     { name: "message", description: "Custom message content" },
@@ -45,7 +78,7 @@ export const TEMPLATE_VARIABLES = {
   ],
 };
 
-export type TemplateCategory = keyof typeof TEMPLATE_VARIABLES;
+export type TemplateCategory = string;
 
 // Variable context for template rendering
 export interface TemplateContext {
@@ -199,6 +232,8 @@ export function previewTemplate(template: string, category: TemplateCategory): s
       roleId: null,
       status: "active",
       smsOptIn: true,
+      username: null,
+      webAccessEnabled: false,
     },
     area: {
       id: "area-1",
