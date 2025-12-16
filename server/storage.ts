@@ -150,8 +150,49 @@ export class MemStorage implements IStorage {
       checkPeriod: 86400000,
     });
 
-    // Initialize with seed data
-    this.initializeSeedData();
+    // Initialize minimal data (admin user only, no seed data)
+    this.initializeMinimalData();
+  }
+
+  private initializeMinimalData(): void {
+    // Create default roles
+    const defaultRoles: Role[] = [
+      { id: "role-admin", name: "Admin", description: "Full system access", permissions: ["manage_shifts", "view_shifts", "manage_employees", "view_reports", "export_reports", "view_audit_log", "manage_settings"], isSystem: true },
+      { id: "role-supervisor", name: "Supervisor", description: "Manage shifts and employees", permissions: ["manage_shifts", "view_shifts", "manage_employees", "view_reports", "export_reports", "view_audit_log"], isSystem: true },
+      { id: "role-employee", name: "Employee", description: "View and claim shifts", permissions: ["view_shifts"], isSystem: true },
+    ];
+    defaultRoles.forEach(r => this.roles.set(r.id, r));
+
+    // Create admin position
+    const adminPosition: Position = { id: "pos-admin", title: "Administrator", description: "Facility administrator" };
+    this.positions.set(adminPosition.id, adminPosition);
+
+    // Create pmorrison admin employee
+    const adminEmployee: Employee = {
+      id: "emp-admin-1",
+      name: "Patricia Morrison",
+      phone: "+15559001001",
+      email: "pmorrison@facility.com",
+      positionId: "pos-admin",
+      role: "admin",
+      roleId: "role-admin",
+      status: "active",
+      smsOptIn: true,
+    };
+    this.employees.set(adminEmployee.id, adminEmployee);
+
+    // Create pmorrison user account (password: admin123)
+    const salt = randomBytes(16).toString("hex");
+    const hashedPassword = scryptSync("admin123", salt, 64).toString("hex") + "." + salt;
+    const adminUser: User = {
+      id: "user-admin-1",
+      username: "pmorrison",
+      password: hashedPassword,
+      role: "admin",
+      roleId: "role-admin",
+      employeeId: "emp-admin-1",
+    };
+    this.users.set(adminUser.id, adminUser);
   }
 
   // Generate unique SMS code for seed data (uses provided Set to track)
