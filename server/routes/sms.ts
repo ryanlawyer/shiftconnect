@@ -1053,8 +1053,9 @@ router.get("/ringcentral/webhook", async (req, res) => {
     if (subscriptionId) {
       try {
         await initializeSMSProvider();
-        const provider = smsProvider as any;
-        if (provider.platform) {
+        const factory = smsProvider as any;
+        const provider = factory.getProvider ? factory.getProvider() : factory;
+        if (provider?.platform) {
           const response = await provider.platform.get(`/restapi/v1.0/subscription/${subscriptionId}`);
           const data = await response.json();
           subscriptionStatus = data.status || "active";
@@ -1119,12 +1120,15 @@ router.post("/ringcentral/webhook", async (req, res) => {
 
     // Initialize provider
     await initializeSMSProvider();
-    const provider = smsProvider as any;
-
-    if (!provider.platform) {
+    
+    // Get the actual RingCentral provider instance from the factory
+    const factory = smsProvider as any;
+    const provider = factory.getProvider ? factory.getProvider() : factory;
+    
+    if (!provider?.platform) {
       return res.status(400).json({
         success: false,
-        error: "RingCentral provider not initialized",
+        error: "RingCentral provider not initialized. Please save your RingCentral settings first.",
       });
     }
 
@@ -1225,9 +1229,10 @@ router.delete("/ringcentral/webhook", async (req, res) => {
 
     // Initialize provider
     await initializeSMSProvider();
-    const provider = smsProvider as any;
+    const factory = smsProvider as any;
+    const provider = factory.getProvider ? factory.getProvider() : factory;
 
-    if (provider.platform) {
+    if (provider?.platform) {
       try {
         await provider.platform.delete(`/restapi/v1.0/subscription/${subscriptionId}`);
         console.log("Deleted webhook subscription:", subscriptionId);
@@ -1285,12 +1290,13 @@ router.post("/ringcentral/webhook/renew", async (req, res) => {
     }
 
     await initializeSMSProvider();
-    const provider = smsProvider as any;
+    const factory = smsProvider as any;
+    const provider = factory.getProvider ? factory.getProvider() : factory;
 
-    if (!provider.platform) {
+    if (!provider?.platform) {
       return res.status(400).json({
         success: false,
-        error: "RingCentral provider not initialized",
+        error: "RingCentral provider not initialized. Please save your RingCentral settings first.",
       });
     }
 
