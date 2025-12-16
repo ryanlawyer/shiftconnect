@@ -1041,10 +1041,16 @@ router.get("/ringcentral/webhook", async (req, res) => {
   }
 
   try {
-    const subscriptionId = await storage.getSetting("ringcentral_webhook_subscription_id");
-    const webhookUrl = await storage.getSetting("ringcentral_webhook_url");
-    const subscriptionCreatedAt = await storage.getSetting("ringcentral_webhook_created_at");
-    const subscriptionExpiresAt = await storage.getSetting("ringcentral_webhook_expires_at");
+    const subscriptionIdSetting = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const webhookUrlSetting = await storage.getSetting("ringcentral_webhook_url");
+    const subscriptionCreatedAtSetting = await storage.getSetting("ringcentral_webhook_created_at");
+    const subscriptionExpiresAtSetting = await storage.getSetting("ringcentral_webhook_expires_at");
+
+    // Extract just the values from settings
+    const subscriptionId = subscriptionIdSetting?.value || null;
+    const webhookUrl = webhookUrlSetting?.value || null;
+    const subscriptionCreatedAt = subscriptionCreatedAtSetting?.value || null;
+    const subscriptionExpiresAt = subscriptionExpiresAtSetting?.value || null;
 
     // Check if subscription is still valid by querying RingCentral
     let subscriptionStatus = "inactive";
@@ -1085,11 +1091,11 @@ router.get("/ringcentral/webhook", async (req, res) => {
     return res.json({
       success: true,
       hasSubscription: isActive,
-      subscriptionId: subscriptionId || null,
-      webhookUrl: webhookUrl || null,
+      subscriptionId: subscriptionId,
+      webhookUrl: webhookUrl,
       status: subscriptionStatus,
-      createdAt: subscriptionCreatedAt || null,
-      expiresAt: subscriptionExpiresAt || null,
+      createdAt: subscriptionCreatedAt,
+      expiresAt: subscriptionExpiresAt,
       details: subscriptionDetails,
     });
   } catch (error: any) {
@@ -1144,7 +1150,8 @@ router.post("/ringcentral/webhook", async (req, res) => {
     const webhookUrl = `https://${replitDomain}/api/sms/webhooks/ringcentral/inbound`;
 
     // Check for existing subscription and delete it first
-    const existingSubId = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const existingSubIdSetting = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const existingSubId = existingSubIdSetting?.value || null;
     if (existingSubId) {
       try {
         await provider.platform.delete(`/restapi/v1.0/subscription/${existingSubId}`);
@@ -1218,7 +1225,8 @@ router.delete("/ringcentral/webhook", async (req, res) => {
   }
 
   try {
-    const subscriptionId = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const subscriptionIdSetting = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const subscriptionId = subscriptionIdSetting?.value || null;
 
     if (!subscriptionId) {
       return res.json({
@@ -1280,7 +1288,8 @@ router.post("/ringcentral/webhook/renew", async (req, res) => {
   }
 
   try {
-    const subscriptionId = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const subscriptionIdSetting = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const subscriptionId = subscriptionIdSetting?.value || null;
 
     if (!subscriptionId) {
       return res.status(400).json({
