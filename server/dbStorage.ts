@@ -1,0 +1,498 @@
+import { db } from "./db";
+import { eq, and, inArray, desc } from "drizzle-orm";
+import {
+  type User, type InsertUser,
+  type Role, type InsertRole,
+  type Area, type InsertArea,
+  type Position, type InsertPosition,
+  type Employee, type InsertEmployee,
+  type EmployeeArea, type InsertEmployeeArea,
+  type Shift, type InsertShift,
+  type ShiftInterest, type InsertShiftInterest,
+  type Message, type InsertMessage,
+  type Training, type InsertTraining,
+  type AuditLog, type InsertAuditLog,
+  type OrganizationSetting,
+  type SmsTemplate, type InsertSmsTemplate,
+  users, roles, areas, positions, employees, employeeAreas,
+  shifts, shiftInterests, messages, trainings, auditLogs,
+  organizationSettings, smsTemplates,
+} from "@shared/schema";
+import session from "express-session";
+import connectPg from "connect-pg-simple";
+import pg from "pg";
+import { scryptSync, randomBytes } from "crypto";
+import type { IStorage } from "./storage";
+
+const { Pool } = pg;
+
+export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
+
+  constructor() {
+    const PgStore = connectPg(session);
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+    this.sessionStore = new PgStore({
+      pool,
+      createTableIfMissing: true,
+    });
+  }
+
+  async initialize(): Promise<void> {
+    const existingRoles = await db.select().from(roles);
+    if (existingRoles.length === 0) {
+      const defaultRoles: InsertRole[] = [
+        { name: "Admin", description: "Full system access", permissions: ["manage_shifts", "view_shifts", "manage_employees", "view_reports", "export_reports", "view_audit_log", "manage_settings"], isSystem: true },
+        { name: "Supervisor", description: "Manage shifts and employees", permissions: ["manage_shifts", "view_shifts", "manage_employees", "view_reports", "export_reports", "view_audit_log"], isSystem: true },
+        { name: "Employee", description: "View and claim shifts", permissions: ["view_shifts"], isSystem: true },
+      ];
+      for (const role of defaultRoles) {
+        await this.createRole(role);
+      }
+    }
+
+    const allRoles = await db.select().from(roles);
+    const adminRole = allRoles.find(r => r.name === "Admin");
+
+    const existingPositions = await db.select().from(positions);
+    let adminPosition = existingPositions.find(p => p.title === "Administrator");
+    if (!adminPosition) {
+      adminPosition = await this.createPosition({ title: "Administrator", description: "Facility administrator" });
+    }
+
+    const existingUsers = await db.select().from(users).where(eq(users.username, "pmorrison"));
+    if (existingUsers.length === 0) {
+      const adminEmployee = await this.createEmployee({
+        name: "Patricia Morrison",
+        phone: "+15559001001",
+        email: "pmorrison@facility.com",
+        positionId: adminPosition.id,
+        role: "admin",
+        roleId: adminRole?.id ?? null,
+        status: "active",
+        smsOptIn: true,
+      });
+
+      const salt = randomBytes(16).toString("hex");
+      const hashedPassword = scryptSync("admin123", salt, 64).toString("hex") + "." + salt;
+      await db.insert(users).values({
+        username: "pmorrison",
+        password: hashedPassword,
+        role: "admin",
+        roleId: adminRole?.id ?? null,
+        employeeId: adminEmployee.id,
+      });
+    }
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.id, id));
+    return result[0];
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.username, username));
+    return result[0];
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const result = await db.insert(users).values(user).returning();
+    return result[0];
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+    const result = await db.update(users).set(updates).where(eq(users.id, id)).returning();
+    return result[0];
+  }
+
+  async getUserByEmployeeId(employeeId: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.employeeId, employeeId));
+    return result[0];
+  }
+
+  async getRoles(): Promise<Role[]> {
+    return db.select().from(roles);
+  }
+
+  async getRole(id: string): Promise<Role | undefined> {
+    const result = await db.select().from(roles).where(eq(roles.id, id));
+    return result[0];
+  }
+
+  async createRole(insertRole: InsertRole): Promise<Role> {
+    const result = await db.insert(roles).values(insertRole).returning();
+    return result[0];
+  }
+
+  async updateRole(id: string, updates: Partial<InsertRole>): Promise<Role | undefined> {
+    const result = await db.update(roles).set(updates).where(eq(roles.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteRole(id: string): Promise<boolean> {
+    const role = await this.getRole(id);
+    if (role?.isSystem) return false;
+    const result = await db.delete(roles).where(eq(roles.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getAreas(): Promise<Area[]> {
+    return db.select().from(areas);
+  }
+
+  async getArea(id: string): Promise<Area | undefined> {
+    const result = await db.select().from(areas).where(eq(areas.id, id));
+    return result[0];
+  }
+
+  async createArea(insertArea: InsertArea): Promise<Area> {
+    const result = await db.insert(areas).values(insertArea).returning();
+    return result[0];
+  }
+
+  async updateArea(id: string, updates: Partial<InsertArea>): Promise<Area | undefined> {
+    const result = await db.update(areas).set(updates).where(eq(areas.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteArea(id: string, reassignToId?: string): Promise<boolean> {
+    if (reassignToId) {
+      const targetArea = await this.getArea(reassignToId);
+      if (!targetArea) return false;
+
+      await db.update(shifts).set({ areaId: reassignToId }).where(eq(shifts.areaId, id));
+
+      const oldAssignments = await db.select().from(employeeAreas).where(eq(employeeAreas.areaId, id));
+      for (const assignment of oldAssignments) {
+        const alreadyHasTarget = await db.select().from(employeeAreas)
+          .where(and(eq(employeeAreas.employeeId, assignment.employeeId), eq(employeeAreas.areaId, reassignToId)));
+        if (alreadyHasTarget.length === 0) {
+          await db.insert(employeeAreas).values({ employeeId: assignment.employeeId, areaId: reassignToId });
+        }
+      }
+    }
+    await db.delete(employeeAreas).where(eq(employeeAreas.areaId, id));
+    const result = await db.delete(areas).where(eq(areas.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getPositions(): Promise<Position[]> {
+    return db.select().from(positions);
+  }
+
+  async getPosition(id: string): Promise<Position | undefined> {
+    const result = await db.select().from(positions).where(eq(positions.id, id));
+    return result[0];
+  }
+
+  async createPosition(insertPosition: InsertPosition): Promise<Position> {
+    const result = await db.insert(positions).values(insertPosition).returning();
+    return result[0];
+  }
+
+  async updatePosition(id: string, updates: Partial<InsertPosition>): Promise<Position | undefined> {
+    const result = await db.update(positions).set(updates).where(eq(positions.id, id)).returning();
+    return result[0];
+  }
+
+  async deletePosition(id: string, reassignToId?: string): Promise<boolean> {
+    if (reassignToId) {
+      const targetPosition = await this.getPosition(reassignToId);
+      if (!targetPosition) return false;
+      await db.update(employees).set({ positionId: reassignToId }).where(eq(employees.positionId, id));
+      await db.update(shifts).set({ positionId: reassignToId }).where(eq(shifts.positionId, id));
+    }
+    const result = await db.delete(positions).where(eq(positions.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getEmployees(): Promise<Employee[]> {
+    return db.select().from(employees);
+  }
+
+  async getEmployee(id: string): Promise<Employee | undefined> {
+    const result = await db.select().from(employees).where(eq(employees.id, id));
+    return result[0];
+  }
+
+  async createEmployee(insertEmployee: InsertEmployee): Promise<Employee> {
+    const result = await db.insert(employees).values(insertEmployee).returning();
+    return result[0];
+  }
+
+  async updateEmployee(id: string, updates: Partial<InsertEmployee>): Promise<Employee | undefined> {
+    const result = await db.update(employees).set(updates).where(eq(employees.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteEmployee(id: string): Promise<boolean> {
+    await db.delete(employeeAreas).where(eq(employeeAreas.employeeId, id));
+    const result = await db.delete(employees).where(eq(employees.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getEmployeeAreas(employeeId: string): Promise<Area[]> {
+    const assignments = await db.select().from(employeeAreas).where(eq(employeeAreas.employeeId, employeeId));
+    if (assignments.length === 0) return [];
+    const areaIds = assignments.map(a => a.areaId);
+    return db.select().from(areas).where(inArray(areas.id, areaIds));
+  }
+
+  async getAreaEmployees(areaId: string): Promise<Employee[]> {
+    const assignments = await db.select().from(employeeAreas).where(eq(employeeAreas.areaId, areaId));
+    if (assignments.length === 0) return [];
+    const employeeIds = assignments.map(a => a.employeeId);
+    return db.select().from(employees)
+      .where(and(inArray(employees.id, employeeIds), eq(employees.status, "active"), eq(employees.smsOptIn, true)));
+  }
+
+  async assignEmployeeToArea(assignment: InsertEmployeeArea): Promise<EmployeeArea> {
+    const existing = await db.select().from(employeeAreas)
+      .where(and(eq(employeeAreas.employeeId, assignment.employeeId), eq(employeeAreas.areaId, assignment.areaId)));
+    if (existing.length > 0) return existing[0];
+    const result = await db.insert(employeeAreas).values(assignment).returning();
+    return result[0];
+  }
+
+  async removeEmployeeFromArea(employeeId: string, areaId: string): Promise<boolean> {
+    const result = await db.delete(employeeAreas)
+      .where(and(eq(employeeAreas.employeeId, employeeId), eq(employeeAreas.areaId, areaId)));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async setEmployeeAreas(employeeId: string, areaIds: string[]): Promise<void> {
+    await db.delete(employeeAreas).where(eq(employeeAreas.employeeId, employeeId));
+    for (const areaId of areaIds) {
+      await this.assignEmployeeToArea({ employeeId, areaId });
+    }
+  }
+
+  async getShifts(): Promise<Shift[]> {
+    return db.select().from(shifts).orderBy(desc(shifts.createdAt));
+  }
+
+  async getShift(id: string): Promise<Shift | undefined> {
+    const result = await db.select().from(shifts).where(eq(shifts.id, id));
+    return result[0];
+  }
+
+  async getShiftBySmsCode(smsCode: string): Promise<Shift | undefined> {
+    const result = await db.select().from(shifts).where(eq(shifts.smsCode, smsCode));
+    return result[0];
+  }
+
+  async getShiftsByArea(areaId: string): Promise<Shift[]> {
+    return db.select().from(shifts).where(eq(shifts.areaId, areaId));
+  }
+
+  async createShift(insertShift: InsertShift): Promise<Shift> {
+    const result = await db.insert(shifts).values(insertShift).returning();
+    return result[0];
+  }
+
+  async updateShift(id: string, updates: Partial<InsertShift>): Promise<Shift | undefined> {
+    const result = await db.update(shifts).set(updates).where(eq(shifts.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteShift(id: string): Promise<boolean> {
+    await db.delete(shiftInterests).where(eq(shiftInterests.shiftId, id));
+    const result = await db.delete(shifts).where(eq(shifts.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getShiftInterests(shiftId: string): Promise<(ShiftInterest & { employee: Employee })[]> {
+    const interests = await db.select().from(shiftInterests).where(eq(shiftInterests.shiftId, shiftId));
+    const result: (ShiftInterest & { employee: Employee })[] = [];
+    for (const interest of interests) {
+      const employee = await this.getEmployee(interest.employeeId);
+      if (employee) {
+        result.push({ ...interest, employee });
+      }
+    }
+    return result;
+  }
+
+  async getShiftInterestByEmployeeAndShift(employeeId: string, shiftId: string): Promise<ShiftInterest | undefined> {
+    const result = await db.select().from(shiftInterests)
+      .where(and(eq(shiftInterests.employeeId, employeeId), eq(shiftInterests.shiftId, shiftId)));
+    return result[0];
+  }
+
+  async getEmployeeShiftInterests(employeeId: string): Promise<(ShiftInterest & { shift: Shift })[]> {
+    const interests = await db.select().from(shiftInterests).where(eq(shiftInterests.employeeId, employeeId));
+    const result: (ShiftInterest & { shift: Shift })[] = [];
+    for (const interest of interests) {
+      const shift = await this.getShift(interest.shiftId);
+      if (shift) {
+        result.push({ ...interest, shift });
+      }
+    }
+    return result;
+  }
+
+  async createShiftInterest(interest: InsertShiftInterest): Promise<ShiftInterest> {
+    const result = await db.insert(shiftInterests).values(interest).returning();
+    return result[0];
+  }
+
+  async deleteShiftInterest(shiftId: string, employeeId: string): Promise<boolean> {
+    const result = await db.delete(shiftInterests)
+      .where(and(eq(shiftInterests.shiftId, shiftId), eq(shiftInterests.employeeId, employeeId)));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getMessages(filters?: { employeeId?: string; messageType?: string; relatedShiftId?: string }): Promise<Message[]> {
+    let query = db.select().from(messages);
+    if (filters?.employeeId) {
+      query = query.where(eq(messages.employeeId, filters.employeeId)) as typeof query;
+    }
+    if (filters?.messageType) {
+      query = query.where(eq(messages.messageType, filters.messageType)) as typeof query;
+    }
+    if (filters?.relatedShiftId) {
+      query = query.where(eq(messages.relatedShiftId, filters.relatedShiftId)) as typeof query;
+    }
+    return query.orderBy(desc(messages.createdAt));
+  }
+
+  async getEmployeeMessages(employeeId: string): Promise<Message[]> {
+    return db.select().from(messages).where(eq(messages.employeeId, employeeId)).orderBy(desc(messages.createdAt));
+  }
+
+  async createMessage(message: InsertMessage): Promise<Message> {
+    const result = await db.insert(messages).values(message).returning();
+    return result[0];
+  }
+
+  async updateMessage(id: string, updates: Partial<Message>): Promise<Message | undefined> {
+    const result = await db.update(messages).set(updates).where(eq(messages.id, id)).returning();
+    return result[0];
+  }
+
+  async getMessageByTwilioSid(twilioSid: string): Promise<Message | undefined> {
+    const result = await db.select().from(messages).where(eq(messages.twilioSid, twilioSid));
+    return result[0];
+  }
+
+  async getMessageByProviderMessageId(providerMessageId: string): Promise<Message | undefined> {
+    const result = await db.select().from(messages).where(eq(messages.providerMessageId, providerMessageId));
+    return result[0];
+  }
+
+  async getMessageThread(threadId: string): Promise<Message[]> {
+    return db.select().from(messages).where(eq(messages.threadId, threadId)).orderBy(messages.createdAt);
+  }
+
+  async getTrainings(): Promise<Training[]> {
+    return db.select().from(trainings);
+  }
+
+  async getTraining(id: string): Promise<Training | undefined> {
+    const result = await db.select().from(trainings).where(eq(trainings.id, id));
+    return result[0];
+  }
+
+  async createTraining(training: InsertTraining): Promise<Training> {
+    const result = await db.insert(trainings).values(training).returning();
+    return result[0];
+  }
+
+  async updateTraining(id: string, updates: Partial<InsertTraining>): Promise<Training | undefined> {
+    const result = await db.update(trainings).set(updates).where(eq(trainings.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteTraining(id: string): Promise<boolean> {
+    const result = await db.delete(trainings).where(eq(trainings.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getAuditLogs(options?: { limit?: number; offset?: number; action?: string; actorId?: string; targetType?: string }): Promise<AuditLog[]> {
+    let query = db.select().from(auditLogs);
+    if (options?.action) {
+      query = query.where(eq(auditLogs.action, options.action)) as typeof query;
+    }
+    if (options?.actorId) {
+      query = query.where(eq(auditLogs.actorId, options.actorId)) as typeof query;
+    }
+    if (options?.targetType) {
+      query = query.where(eq(auditLogs.targetType, options.targetType)) as typeof query;
+    }
+    query = query.orderBy(desc(auditLogs.createdAt)) as typeof query;
+    if (options?.limit) {
+      query = query.limit(options.limit) as typeof query;
+    }
+    if (options?.offset) {
+      query = query.offset(options.offset) as typeof query;
+    }
+    return query;
+  }
+
+  async getAuditLog(id: string): Promise<AuditLog | undefined> {
+    const result = await db.select().from(auditLogs).where(eq(auditLogs.id, id));
+    return result[0];
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const result = await db.insert(auditLogs).values(log).returning();
+    return result[0];
+  }
+
+  async getSettings(): Promise<OrganizationSetting[]> {
+    return db.select().from(organizationSettings);
+  }
+
+  async getSetting(key: string): Promise<OrganizationSetting | undefined> {
+    const result = await db.select().from(organizationSettings).where(eq(organizationSettings.key, key));
+    return result[0];
+  }
+
+  async setSetting(key: string, value: string, description?: string): Promise<OrganizationSetting> {
+    const existing = await this.getSetting(key);
+    if (existing) {
+      const result = await db.update(organizationSettings)
+        .set({ value, description: description ?? existing.description, updatedAt: new Date() })
+        .where(eq(organizationSettings.key, key))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(organizationSettings).values({ key, value, description }).returning();
+    return result[0];
+  }
+
+  async getSmsTemplates(): Promise<SmsTemplate[]> {
+    return db.select().from(smsTemplates);
+  }
+
+  async getSmsTemplate(id: string): Promise<SmsTemplate | undefined> {
+    const result = await db.select().from(smsTemplates).where(eq(smsTemplates.id, id));
+    return result[0];
+  }
+
+  async getSmsTemplateByCategory(category: string): Promise<SmsTemplate | undefined> {
+    const result = await db.select().from(smsTemplates)
+      .where(and(eq(smsTemplates.category, category), eq(smsTemplates.isActive, true)));
+    return result[0];
+  }
+
+  async createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate> {
+    const result = await db.insert(smsTemplates).values(template).returning();
+    return result[0];
+  }
+
+  async updateSmsTemplate(id: string, updates: Partial<InsertSmsTemplate>): Promise<SmsTemplate | undefined> {
+    const result = await db.update(smsTemplates).set({ ...updates, updatedAt: new Date() })
+      .where(eq(smsTemplates.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteSmsTemplate(id: string): Promise<boolean> {
+    const template = await this.getSmsTemplate(id);
+    if (template?.isSystem) return false;
+    const result = await db.delete(smsTemplates).where(eq(smsTemplates.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+}

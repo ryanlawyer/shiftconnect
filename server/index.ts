@@ -4,6 +4,7 @@ import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { startReminderChecker, stopReminderChecker } from "./services/shiftReminderScheduler";
+import { storage } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -62,6 +63,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize database with default data if needed
+  if ('initialize' in storage && typeof storage.initialize === 'function') {
+    await storage.initialize();
+  }
+
   setupAuth(app);
   await registerRoutes(httpServer, app);
 
