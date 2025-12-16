@@ -922,5 +922,33 @@ export async function registerRoutes(
   // SMS Routes (protected by requireAuth since they're under /api)
   app.use("/api/sms", smsRoutes);
 
+  // Documentation Downloads
+  app.get("/api/docs/:docName", async (req, res) => {
+    const { docName } = req.params;
+    const fs = await import("fs");
+    const path = await import("path");
+    
+    const docFiles: Record<string, string> = {
+      "user-guide": "docs/user-guide.md",
+      "admin-guide": "docs/admin-guide.md",
+    };
+    
+    const filePath = docFiles[docName];
+    if (!filePath) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+    
+    const fullPath = path.resolve(process.cwd(), filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: "Document file not found" });
+    }
+    
+    const content = fs.readFileSync(fullPath, "utf-8");
+    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${docName}.md"`);
+    res.send(content);
+  });
+
   return httpServer;
 }

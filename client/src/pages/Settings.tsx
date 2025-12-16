@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key, RefreshCw } from "lucide-react";
+import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key, RefreshCw, Download, BookOpen } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Area, Position, Role, OrganizationSetting, SmsTemplate } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
@@ -1026,7 +1026,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className={`grid w-full ${user?.role === "admin" ? "grid-cols-5" : "grid-cols-4"}`}>
+        <TabsList className={`grid w-full ${user?.role === "admin" ? "grid-cols-6" : "grid-cols-5"}`}>
           <TabsTrigger value="profile" data-testid="tab-profile">
             <User className="h-4 w-4 mr-2" />
             Profile
@@ -1048,6 +1048,10 @@ export default function Settings() {
           <TabsTrigger value="security" data-testid="tab-security">
             <Shield className="h-4 w-4 mr-2" />
             Security
+          </TabsTrigger>
+          <TabsTrigger value="documentation" data-testid="tab-documentation">
+            <BookOpen className="h-4 w-4 mr-2" />
+            Docs
           </TabsTrigger>
         </TabsList>
 
@@ -2409,6 +2413,53 @@ export default function Settings() {
                 </div>
                 <Button variant="outline" data-testid="button-change-password">
                   Change Password
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Documentation Tab */}
+        <TabsContent value="documentation" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-5 w-5" />
+                <CardTitle>Documentation</CardTitle>
+              </div>
+              <CardDescription>Download guides and documentation for ShiftConnect</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg border">
+                <div className="space-y-0.5">
+                  <p className="font-medium">User Guide</p>
+                  <p className="text-sm text-muted-foreground">
+                    Instructions for employees: viewing shifts, SMS commands, expressing interest
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => window.open("/api/docs/user-guide", "_blank")}
+                  data-testid="button-download-user-guide"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-lg border">
+                <div className="space-y-0.5">
+                  <p className="font-medium">Administrator Guide</p>
+                  <p className="text-sm text-muted-foreground">
+                    Instructions for admins: employee management, shift posting, SMS setup, reports
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => window.open("/api/docs/admin-guide", "_blank")}
+                  data-testid="button-download-admin-guide"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
                 </Button>
               </div>
             </CardContent>
