@@ -647,6 +647,212 @@ router.get("/diagnostics/ringcentral", async (req, res) => {
   }
 });
 
+// === RingCentral Credentials Import ===
+router.post("/ringcentral/import", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  const { credentials } = req.body;
+
+  if (!credentials) {
+    return res.status(400).json({ success: false, error: "Credentials JSON is required" });
+  }
+
+  try {
+    // Validate the credential structure
+    if (!credentials.clientId || !credentials.clientSecret || !credentials.server) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid credentials format. Must include clientId, clientSecret, and server.",
+      });
+    }
+
+    // Handle the jwt field - can be a single string or an object with named keys
+    const jwtAliases: { alias: string; jwt: string }[] = [];
+    
+    if (credentials.jwt) {
+      if (typeof credentials.jwt === "string") {
+        // Single JWT string
+        jwtAliases.push({ alias: "default", jwt: credentials.jwt });
+      } else if (typeof credentials.jwt === "object") {
+        // Object with named JWT keys (e.g., { "ITS": "...", "OtherUser": "..." })
+        for (const [alias, jwt] of Object.entries(credentials.jwt)) {
+          if (typeof jwt === "string" && jwt.length > 0) {
+            jwtAliases.push({ alias, jwt: jwt as string });
+          }
+        }
+      }
+    }
+
+    if (jwtAliases.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "No valid JWT tokens found in credentials. The 'jwt' field must be a string or an object with named JWT tokens.",
+      });
+    }
+
+    // Store the credentials in the settings table
+    // Store basic credentials (these overwrite any existing)
+    // Use underscore-separated keys to match getSMSSettings() expectations
+    await storage.setSetting("ringcentral_client_id", credentials.clientId);
+    await storage.setSetting("ringcentral_client_secret", credentials.clientSecret);
+    await storage.setSetting("ringcentral_server_url", credentials.server);
+    
+    // Store JWT aliases as JSON
+    await storage.setSetting("ringcentral_jwt_aliases", JSON.stringify(jwtAliases));
+    
+    // If there's only one JWT, also set it as the active one
+    if (jwtAliases.length === 1) {
+      await storage.setSetting("ringcentral_jwt", jwtAliases[0].jwt);
+      await storage.setSetting("ringcentral_active_jwt_alias", jwtAliases[0].alias);
+    }
+
+    // Log the import (without exposing secrets)
+    await logAuditEvent({
+      action: "ringcentral_credentials_import",
+      actor: user,
+      targetType: "sms_provider",
+      targetId: "ringcentral",
+      targetName: "RingCentral Credentials",
+      details: {
+        jwtAliasCount: jwtAliases.length,
+        aliases: jwtAliases.map(j => j.alias),
+        server: credentials.server,
+      },
+    });
+
+    // Reinitialize the SMS provider if RingCentral is active
+    const settings = await getSMSSettings();
+    if (settings.smsProvider === "ringcentral") {
+      await initializeSMSProvider();
+    }
+
+    return res.json({
+      success: true,
+      message: `RingCentral credentials imported successfully. Found ${jwtAliases.length} JWT token(s).`,
+      jwtAliases: jwtAliases.map(j => j.alias),
+      activeAlias: jwtAliases.length === 1 ? jwtAliases[0].alias : null,
+    });
+  } catch (error: any) {
+    console.error("RingCentral credentials import error:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to import credentials",
+    });
+  }
+});
+
+// === Get RingCentral JWT Aliases ===
+router.get("/ringcentral/credentials", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const jwtAliasesJson = await storage.getSetting("ringcentral_jwt_aliases");
+    const activeAlias = await storage.getSetting("ringcentral_active_jwt_alias");
+    const clientId = await storage.getSetting("ringcentral_client_id");
+    const serverUrl = await storage.getSetting("ringcentral_server_url");
+
+    let jwtAliases: { alias: string }[] = [];
+    if (jwtAliasesJson) {
+      try {
+        const parsed = JSON.parse(jwtAliasesJson);
+        // Only return alias names, not the actual JWT tokens
+        jwtAliases = parsed.map((j: any) => ({ alias: j.alias }));
+      } catch {
+        jwtAliases = [];
+      }
+    }
+
+    return res.json({
+      success: true,
+      hasCredentials: !!clientId,
+      serverUrl: serverUrl || null,
+      jwtAliases,
+      activeAlias: activeAlias || null,
+    });
+  } catch (error: any) {
+    console.error("Error fetching RingCentral credentials:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch credentials",
+    });
+  }
+});
+
+// === Select Active JWT Alias ===
+router.post("/ringcentral/select-jwt", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  const { alias } = req.body;
+
+  if (!alias) {
+    return res.status(400).json({ success: false, error: "JWT alias is required" });
+  }
+
+  try {
+    // Get the stored JWT aliases
+    const jwtAliasesJson = await storage.getSetting("ringcentral_jwt_aliases");
+    if (!jwtAliasesJson) {
+      return res.status(400).json({
+        success: false,
+        error: "No RingCentral credentials imported. Please import credentials first.",
+      });
+    }
+
+    const jwtAliases: { alias: string; jwt: string }[] = JSON.parse(jwtAliasesJson);
+    const selectedJwt = jwtAliases.find(j => j.alias === alias);
+
+    if (!selectedJwt) {
+      return res.status(400).json({
+        success: false,
+        error: `JWT alias '${alias}' not found. Available aliases: ${jwtAliases.map(j => j.alias).join(", ")}`,
+      });
+    }
+
+    // Set the active JWT
+    await storage.setSetting("ringcentral_jwt", selectedJwt.jwt);
+    await storage.setSetting("ringcentral_active_jwt_alias", alias);
+
+    // Reinitialize the SMS provider
+    const settings = await getSMSSettings();
+    if (settings.smsProvider === "ringcentral") {
+      await initializeSMSProvider();
+    }
+
+    // Log the selection
+    await logAuditEvent({
+      action: "ringcentral_jwt_selected",
+      actor: user,
+      targetType: "sms_provider",
+      targetId: "ringcentral",
+      targetName: "RingCentral JWT Selection",
+      details: {
+        alias,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: `JWT alias '${alias}' is now active`,
+      activeAlias: alias,
+    });
+  } catch (error: any) {
+    console.error("Error selecting JWT alias:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to select JWT alias",
+    });
+  }
+});
+
 // === Test SMS Credentials ===
 router.post("/test", async (req, res) => {
   const user = req.user as any;

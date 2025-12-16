@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info } from "lucide-react";
+import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Area, Position, Role, OrganizationSetting, SmsTemplate } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,6 +60,116 @@ const AVAILABLE_PERMISSIONS = [
   { id: "view_audit_log", label: "View Audit Log", description: "Access system audit log and activity history" },
   { id: "manage_settings", label: "Manage Settings", description: "Configure organization settings" },
 ];
+
+function RingCentralCredentialsStatus() {
+  const { toast } = useToast();
+  const [selectingJwt, setSelectingJwt] = useState(false);
+  
+  const { data: rcCredentials, isLoading } = useQuery<{
+    success: boolean;
+    hasCredentials: boolean;
+    serverUrl: string | null;
+    jwtAliases: { alias: string }[];
+    activeAlias: string | null;
+  }>({
+    queryKey: ["/api/sms/ringcentral/credentials"],
+  });
+
+  const selectJwtMutation = useMutation({
+    mutationFn: async (alias: string) => {
+      const response = await apiRequest("POST", "/api/sms/ringcentral/select-jwt", { alias });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "JWT Selected",
+          description: data.message,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/sms/ringcentral/credentials"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+      } else {
+        toast({
+          title: "Selection Failed",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to select JWT",
+        variant: "destructive",
+      });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading credential status...
+      </div>
+    );
+  }
+
+  if (!rcCredentials?.hasCredentials) {
+    return (
+      <div className="text-sm text-muted-foreground">
+        No credentials imported yet. Upload a JSON file to get started.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm">
+        <CheckCircle2 className="h-4 w-4 text-green-500" />
+        <span className="text-muted-foreground">Credentials imported</span>
+        {rcCredentials.serverUrl && (
+          <Badge variant="outline" className="text-xs">
+            {rcCredentials.serverUrl.includes("devtest") ? "Sandbox" : "Production"}
+          </Badge>
+        )}
+      </div>
+      
+      {rcCredentials.jwtAliases.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Key className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">JWT Tokens ({rcCredentials.jwtAliases.length})</span>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {rcCredentials.jwtAliases.map((jwt) => (
+              <Badge
+                key={jwt.alias}
+                variant={jwt.alias === rcCredentials.activeAlias ? "default" : "outline"}
+                className={`cursor-pointer ${jwt.alias === rcCredentials.activeAlias ? "" : "hover-elevate"}`}
+                onClick={() => {
+                  if (jwt.alias !== rcCredentials.activeAlias) {
+                    selectJwtMutation.mutate(jwt.alias);
+                  }
+                }}
+                data-testid={`badge-jwt-${jwt.alias}`}
+              >
+                {jwt.alias}
+                {jwt.alias === rcCredentials.activeAlias && (
+                  <CheckCircle2 className="h-3 w-3 ml-1" />
+                )}
+              </Badge>
+            ))}
+          </div>
+          {rcCredentials.jwtAliases.length > 1 && !rcCredentials.activeAlias && (
+            <p className="text-xs text-amber-600">
+              Please select a JWT token to use for authentication.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Settings() {
   const { toast } = useToast();
@@ -1396,6 +1506,69 @@ export default function Settings() {
                 {smsSettings.smsProvider === "ringcentral" && (
                   <div className="space-y-4">
                     <h4 className="font-medium">RingCentral Credentials</h4>
+                    
+                    {/* Credential Import Section */}
+                    <div className="p-4 bg-muted/30 rounded-md space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Upload className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium text-sm">Import Credentials from JSON</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Upload your RingCentral credential JSON file to automatically configure all authentication settings.
+                      </p>
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <Input
+                          type="file"
+                          accept=".json"
+                          className="max-w-xs"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            
+                            try {
+                              const text = await file.text();
+                              const credentials = JSON.parse(text);
+                              
+                              const response = await apiRequest("POST", "/api/sms/ringcentral/import", { credentials });
+                              const result = await response.json();
+                              
+                              if (result.success) {
+                                toast({
+                                  title: "Credentials Imported",
+                                  description: result.message,
+                                });
+                                queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+                                queryClient.invalidateQueries({ queryKey: ["/api/sms/ringcentral/credentials"] });
+                                queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+                              } else {
+                                toast({
+                                  title: "Import Failed",
+                                  description: result.error,
+                                  variant: "destructive",
+                                });
+                              }
+                            } catch (error: any) {
+                              toast({
+                                title: "Import Error",
+                                description: error.message || "Failed to import credentials",
+                                variant: "destructive",
+                              });
+                            }
+                            
+                            e.target.value = "";
+                          }}
+                          data-testid="input-import-credentials"
+                        />
+                      </div>
+                      
+                      {/* Show imported credentials status */}
+                      <RingCentralCredentialsStatus />
+                    </div>
+                    
+                    <Separator />
+                    
+                    <p className="text-xs text-muted-foreground">Or manually enter credentials below:</p>
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="rc-client-id">Client ID</Label>
