@@ -35,7 +35,10 @@ export type AuditAction =
   | "shift_interest_cancelled_via_sms"
   | "shift_cancelled_via_sms"
   | "sms_test"
-  | "setting_updated";
+  | "setting_updated"
+  // RingCentral configuration actions
+  | "ringcentral_credentials_import"
+  | "ringcentral_jwt_selected";
 
 export type TargetType = "role" | "shift" | "user" | "employee" | "area" | "position" | "message" | "setting" | "sms_provider";
 

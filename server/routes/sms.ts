@@ -752,10 +752,15 @@ router.get("/ringcentral/credentials", async (req, res) => {
   }
 
   try {
-    const jwtAliasesJson = await storage.getSetting("ringcentral_jwt_aliases");
-    const activeAlias = await storage.getSetting("ringcentral_active_jwt_alias");
-    const clientId = await storage.getSetting("ringcentral_client_id");
-    const serverUrl = await storage.getSetting("ringcentral_server_url");
+    const jwtAliasesSetting = await storage.getSetting("ringcentral_jwt_aliases");
+    const activeAliasSetting = await storage.getSetting("ringcentral_active_jwt_alias");
+    const clientIdSetting = await storage.getSetting("ringcentral_client_id");
+    const serverUrlSetting = await storage.getSetting("ringcentral_server_url");
+
+    const jwtAliasesJson = jwtAliasesSetting?.value;
+    const activeAlias = activeAliasSetting?.value;
+    const clientId = clientIdSetting?.value;
+    const serverUrl = serverUrlSetting?.value;
 
     let jwtAliases: { alias: string }[] = [];
     if (jwtAliasesJson) {
@@ -799,7 +804,8 @@ router.post("/ringcentral/select-jwt", async (req, res) => {
 
   try {
     // Get the stored JWT aliases
-    const jwtAliasesJson = await storage.getSetting("ringcentral_jwt_aliases");
+    const jwtAliasesSetting = await storage.getSetting("ringcentral_jwt_aliases");
+    const jwtAliasesJson = jwtAliasesSetting?.value;
     if (!jwtAliasesJson) {
       return res.status(400).json({
         success: false,
@@ -839,16 +845,188 @@ router.post("/ringcentral/select-jwt", async (req, res) => {
       },
     });
 
+    // Fetch available phone numbers for this JWT
+    let availableNumbers: string[] = [];
+    try {
+      const provider = smsProvider as any;
+      if (typeof provider.getAvailableSmsNumbers === 'function') {
+        const result = await provider.getAvailableSmsNumbers();
+        if (result.success && result.numbers) {
+          availableNumbers = result.numbers
+            .filter((n: any) => n.canSendSms)
+            .map((n: any) => n.phoneNumber);
+          // Cache the available numbers
+          await storage.setSetting("ringcentral_available_numbers", JSON.stringify(availableNumbers));
+          await storage.setSetting("ringcentral_numbers_fetched_at", new Date().toISOString());
+        }
+      }
+    } catch (numErr) {
+      console.log("Could not fetch available phone numbers:", numErr);
+    }
+
     return res.json({
       success: true,
       message: `JWT alias '${alias}' is now active`,
       activeAlias: alias,
+      availableNumbers,
     });
   } catch (error: any) {
     console.error("Error selecting JWT alias:", error);
     return res.status(500).json({
       success: false,
       error: error.message || "Failed to select JWT alias",
+    });
+  }
+});
+
+// === Get Available SMS Phone Numbers ===
+router.get("/ringcentral/phone-numbers", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const settings = await getSMSSettings();
+    
+    // Check if we need to fetch fresh or can use cached
+    const cachedNumbersSetting = await storage.getSetting("ringcentral_available_numbers");
+    const fetchedAtSetting = await storage.getSetting("ringcentral_numbers_fetched_at");
+    const cachedNumbersJson = cachedNumbersSetting?.value;
+    const fetchedAt = fetchedAtSetting?.value;
+    const currentFromNumber = settings.ringcentralFromNumber;
+    
+    // Return cached if available and less than 15 minutes old
+    if (cachedNumbersJson && fetchedAt) {
+      const fetchedTime = new Date(fetchedAt).getTime();
+      const fifteenMinutes = 15 * 60 * 1000;
+      if (Date.now() - fetchedTime < fifteenMinutes) {
+        return res.json({
+          success: true,
+          numbers: JSON.parse(cachedNumbersJson),
+          currentFromNumber,
+          fetchedAt,
+          cached: true,
+        });
+      }
+    }
+
+    // Need to fetch fresh
+    if (settings.smsProvider !== "ringcentral") {
+      return res.json({
+        success: false,
+        error: "RingCentral is not the active SMS provider",
+        numbers: [],
+      });
+    }
+
+    // Initialize if needed
+    await initializeSMSProvider();
+
+    const provider = smsProvider as any;
+    if (typeof provider.getAvailableSmsNumbers !== 'function') {
+      return res.json({
+        success: false,
+        error: "Provider does not support phone number discovery",
+        numbers: [],
+      });
+    }
+
+    const result = await provider.getAvailableSmsNumbers();
+    if (!result.success) {
+      return res.json({
+        success: false,
+        error: result.error || "Failed to fetch phone numbers",
+        numbers: [],
+      });
+    }
+
+    const availableNumbers = (result.numbers || [])
+      .filter((n: any) => n.canSendSms)
+      .map((n: any) => n.phoneNumber);
+
+    // Cache the results
+    await storage.setSetting("ringcentral_available_numbers", JSON.stringify(availableNumbers));
+    const newFetchedAt = new Date().toISOString();
+    await storage.setSetting("ringcentral_numbers_fetched_at", newFetchedAt);
+
+    return res.json({
+      success: true,
+      numbers: availableNumbers,
+      currentFromNumber,
+      fetchedAt: newFetchedAt,
+      cached: false,
+    });
+  } catch (error: any) {
+    console.error("Error fetching phone numbers:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to fetch phone numbers",
+      numbers: [],
+    });
+  }
+});
+
+// === Refresh Phone Numbers (force fetch) ===
+router.post("/ringcentral/refresh-numbers", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const settings = await getSMSSettings();
+
+    if (settings.smsProvider !== "ringcentral") {
+      return res.json({
+        success: false,
+        error: "RingCentral is not the active SMS provider",
+        numbers: [],
+      });
+    }
+
+    // Initialize if needed
+    await initializeSMSProvider();
+
+    const provider = smsProvider as any;
+    if (typeof provider.getAvailableSmsNumbers !== 'function') {
+      return res.json({
+        success: false,
+        error: "Provider does not support phone number discovery",
+        numbers: [],
+      });
+    }
+
+    const result = await provider.getAvailableSmsNumbers();
+    if (!result.success) {
+      return res.json({
+        success: false,
+        error: result.error || "Failed to fetch phone numbers",
+        numbers: [],
+      });
+    }
+
+    const availableNumbers = (result.numbers || [])
+      .filter((n: any) => n.canSendSms)
+      .map((n: any) => n.phoneNumber);
+
+    // Cache the results
+    await storage.setSetting("ringcentral_available_numbers", JSON.stringify(availableNumbers));
+    const newFetchedAt = new Date().toISOString();
+    await storage.setSetting("ringcentral_numbers_fetched_at", newFetchedAt);
+
+    return res.json({
+      success: true,
+      numbers: availableNumbers,
+      currentFromNumber: settings.ringcentralFromNumber,
+      fetchedAt: newFetchedAt,
+    });
+  } catch (error: any) {
+    console.error("Error refreshing phone numbers:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to refresh phone numbers",
+      numbers: [],
     });
   }
 });

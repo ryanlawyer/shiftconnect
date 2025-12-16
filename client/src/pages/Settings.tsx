@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key } from "lucide-react";
+import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key, RefreshCw } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Area, Position, Role, OrganizationSetting, SmsTemplate } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,9 +61,8 @@ const AVAILABLE_PERMISSIONS = [
   { id: "manage_settings", label: "Manage Settings", description: "Configure organization settings" },
 ];
 
-function RingCentralCredentialsStatus() {
+function RingCentralCredentialsStatus({ onPhoneNumbersLoaded }: { onPhoneNumbersLoaded?: (numbers: string[]) => void }) {
   const { toast } = useToast();
-  const [selectingJwt, setSelectingJwt] = useState(false);
   
   const { data: rcCredentials, isLoading } = useQuery<{
     success: boolean;
@@ -74,6 +73,25 @@ function RingCentralCredentialsStatus() {
   }>({
     queryKey: ["/api/sms/ringcentral/credentials"],
   });
+
+  const { data: phoneNumbers, refetch: refetchPhoneNumbers, isLoading: isLoadingNumbers } = useQuery<{
+    success: boolean;
+    numbers: string[];
+    currentFromNumber: string | null;
+    fetchedAt: string | null;
+    error?: string;
+  }>({
+    queryKey: ["/api/sms/ringcentral/phone-numbers"],
+    enabled: !!rcCredentials?.hasCredentials && !!rcCredentials?.activeAlias,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  // Notify parent when phone numbers are loaded
+  useEffect(() => {
+    if (phoneNumbers?.numbers && onPhoneNumbersLoaded) {
+      onPhoneNumbersLoaded(phoneNumbers.numbers);
+    }
+  }, [phoneNumbers?.numbers, onPhoneNumbersLoaded]);
 
   const selectJwtMutation = useMutation({
     mutationFn: async (alias: string) => {
@@ -87,7 +105,12 @@ function RingCentralCredentialsStatus() {
           description: data.message,
         });
         queryClient.invalidateQueries({ queryKey: ["/api/sms/ringcentral/credentials"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/sms/ringcentral/phone-numbers"] });
         queryClient.invalidateQueries({ queryKey: ["/api/sms/status"] });
+        // If phone numbers were returned with JWT selection, notify parent
+        if (data.availableNumbers && onPhoneNumbersLoaded) {
+          onPhoneNumbersLoaded(data.availableNumbers);
+        }
       } else {
         toast({
           title: "Selection Failed",
@@ -100,6 +123,35 @@ function RingCentralCredentialsStatus() {
       toast({
         title: "Error",
         description: error.message || "Failed to select JWT",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const refreshNumbersMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/sms/ringcentral/refresh-numbers", {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Phone Numbers Refreshed",
+          description: `Found ${data.numbers?.length || 0} SMS-capable number(s)`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/sms/ringcentral/phone-numbers"] });
+      } else {
+        toast({
+          title: "Refresh Failed",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to refresh phone numbers",
         variant: "destructive",
       });
     },
@@ -164,6 +216,42 @@ function RingCentralCredentialsStatus() {
             <p className="text-xs text-amber-600">
               Please select a JWT token to use for authentication.
             </p>
+          )}
+        </div>
+      )}
+
+      {rcCredentials.activeAlias && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Available SMS Numbers</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => refreshNumbersMutation.mutate()}
+              disabled={refreshNumbersMutation.isPending || isLoadingNumbers}
+              className="h-6 px-2"
+              data-testid="button-refresh-numbers"
+            >
+              <RefreshCw className={`h-3 w-3 ${refreshNumbersMutation.isPending || isLoadingNumbers ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+          {isLoadingNumbers && (
+            <div className="text-xs text-muted-foreground">Loading available numbers...</div>
+          )}
+          {!isLoadingNumbers && phoneNumbers?.numbers && phoneNumbers.numbers.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              {phoneNumbers.numbers.map((num) => (
+                <Badge key={num} variant="outline" className="text-xs font-mono">
+                  {num}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {!isLoadingNumbers && (!phoneNumbers?.numbers || phoneNumbers.numbers.length === 0) && (
+            <div className="text-xs text-amber-600">
+              No SMS-capable numbers found for this user. Make sure the RingCentral account has SMS-enabled phone numbers assigned.
+            </div>
           )}
         </div>
       )}
@@ -452,6 +540,7 @@ export default function Settings() {
   const [showRcJwt, setShowRcJwt] = useState(false);
   const [testPhoneNumber, setTestPhoneNumber] = useState("");
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [availableRcNumbers, setAvailableRcNumbers] = useState<string[]>([]);
 
   // SMS Status check
   const { data: smsStatus } = useQuery<{
@@ -1562,7 +1651,7 @@ export default function Settings() {
                       </div>
                       
                       {/* Show imported credentials status */}
-                      <RingCentralCredentialsStatus />
+                      <RingCentralCredentialsStatus onPhoneNumbersLoaded={setAvailableRcNumbers} />
                     </div>
                     
                     <Separator />
@@ -1627,14 +1716,36 @@ export default function Settings() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="rc-from">From Phone Number</Label>
-                        <Input
-                          id="rc-from"
-                          value={smsSettings.ringcentralFromNumber}
-                          onChange={(e) => setSmsSettings(prev => ({ ...prev, ringcentralFromNumber: e.target.value }))}
-                          placeholder="+15551234567"
-                          data-testid="input-rc-from"
-                        />
-                        <p className="text-xs text-muted-foreground">Your RingCentral SMS-enabled phone number</p>
+                        {availableRcNumbers.length > 0 ? (
+                          <Select
+                            value={smsSettings.ringcentralFromNumber}
+                            onValueChange={(value) => setSmsSettings(prev => ({ ...prev, ringcentralFromNumber: value }))}
+                          >
+                            <SelectTrigger data-testid="select-rc-from">
+                              <SelectValue placeholder="Select an SMS-enabled number" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableRcNumbers.map((num) => (
+                                <SelectItem key={num} value={num}>
+                                  {num}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            id="rc-from"
+                            value={smsSettings.ringcentralFromNumber}
+                            onChange={(e) => setSmsSettings(prev => ({ ...prev, ringcentralFromNumber: e.target.value }))}
+                            placeholder="+15551234567"
+                            data-testid="input-rc-from"
+                          />
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {availableRcNumbers.length > 0 
+                            ? "Select from your SMS-enabled RingCentral numbers"
+                            : "Import credentials and select a JWT to see available numbers"}
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="rc-server">Server URL</Label>

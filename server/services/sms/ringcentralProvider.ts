@@ -192,8 +192,22 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
     // Remove all non-numeric characters except leading +
     let cleaned = phone.replace(/[^\d+]/g, "");
 
-    // Add + if not present and starts with country code
-    if (!cleaned.startsWith("+")) {
+    // Handle numbers with or without + prefix
+    if (cleaned.startsWith("+")) {
+      // Extract digits after the +
+      const digits = cleaned.substring(1);
+      
+      // If it's exactly 10 digits, it's a US number missing the country code
+      if (digits.length === 10) {
+        cleaned = "+1" + digits;
+      }
+      // If it's 11 digits starting with 1, it's already correct
+      else if (digits.length === 11 && digits.startsWith("1")) {
+        cleaned = "+" + digits;
+      }
+      // Otherwise keep as-is
+    } else {
+      // No + prefix
       // Assume US number if 10 digits
       if (cleaned.length === 10) {
         cleaned = "+1" + cleaned;
