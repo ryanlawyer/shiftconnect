@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { DashboardStats, type StatCardProps } from "@/components/DashboardStats";
 import { ShiftCard } from "@/components/ShiftCard";
@@ -62,6 +64,39 @@ export default function Dashboard() {
   });
 
   const isLoading = loadingShifts || loadingEmployees;
+
+  const { toast } = useToast();
+
+  const assignMutation = useMutation({
+    mutationFn: async ({ shiftId, employeeId, sendNotification }: { shiftId: string; employeeId: string; sendNotification: boolean }) => {
+      const response = await apiRequest("POST", `/api/shifts/${shiftId}/assign`, {
+        employeeId,
+        sendNotification,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts", selectedShiftId] });
+      toast({
+        title: "Shift Assigned",
+        description: "The shift has been successfully assigned to the employee.",
+      });
+      setModalOpen(false);
+      setSelectedShiftId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Assignment Failed",
+        description: error.message || "Failed to assign shift. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAssign = (shiftId: string, employeeId: string, sendNotification: boolean) => {
+    assignMutation.mutate({ shiftId, employeeId, sendNotification });
+  };
 
   // Calculate dashboard stats from real data
   const dashboardStats = useMemo(() => {
@@ -251,11 +286,7 @@ export default function Dashboard() {
             assignedEmployee: shiftDetail.assignedEmployee,
           }}
           isAdmin={true}
-          onAssign={(shiftId, empId) => {
-            console.log("Assign:", shiftId, empId);
-            setModalOpen(false);
-            setSelectedShiftId(null);
-          }}
+          onAssign={handleAssign}
           onMessageEmployee={(id) => console.log("Message:", id)}
         />
       )}
