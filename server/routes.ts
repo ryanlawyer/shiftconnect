@@ -541,15 +541,20 @@ export async function registerRoutes(
 
       if (sendNotification === true) {
         const area = await storage.getArea(shift.areaId);
-        if (area && area.smsEnabled) {
+        console.log(`Shift notification requested - Area: ${area?.name || 'none'}, smsEnabled: ${area?.smsEnabled}`);
+        
+        if (area) {
           const areaEmployees = await storage.getAreaEmployees(shift.areaId);
           notificationRecipients = areaEmployees
             .filter(e => e.status === "active" && e.smsOptIn)
             .map(e => ({ id: e.id, name: e.name, phone: e.phone }));
 
+          console.log(`Found ${areaEmployees.length} employees in area, ${notificationRecipients.length} eligible for SMS`);
+
           // Get webhook base URL for status callbacks
           const protocol = req.secure ? "https" : "http";
-          const host = req.get("host");
+          const forwardedHost = req.headers["x-forwarded-host"] as string;
+          const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
           const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
 
           // Send SMS notifications asynchronously
@@ -560,6 +565,8 @@ export async function registerRoutes(
             .catch(err => {
               console.error("Error sending shift notifications:", err);
             });
+        } else {
+          console.log(`No area found for shift ${shift.id}, skipping notifications`);
         }
       }
 
