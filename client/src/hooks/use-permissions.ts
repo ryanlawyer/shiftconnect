@@ -1,52 +1,55 @@
-import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "./use-auth";
-import type { Role } from "@shared/schema";
 
-// All available permissions in the system
-export type Permission =
-  | "manage_shifts"
-  | "view_shifts"
-  | "manage_employees"
-  | "view_reports"
-  | "export_reports"
-  | "view_audit_log"
-  | "manage_settings";
+// Canonical permission definitions matching server/shared permissions
+export const PERMISSIONS = {
+  DASHBOARD_VIEW: "dashboard:view",
+  SHIFTS_VIEW: "shifts:view",
+  SHIFTS_MANAGE: "shifts:manage",
+  SHIFTS_INTEREST: "shifts:interest",
+  EMPLOYEES_VIEW: "employees:view",
+  EMPLOYEES_MANAGE: "employees:manage",
+  REPORTS_VIEW: "reports:view",
+  REPORTS_EXPORT: "reports:export",
+  AUDIT_LOG_VIEW: "audit_log:view",
+  SETTINGS_VIEW: "settings:view",
+  SETTINGS_ORG: "settings:org",
+  SETTINGS_SMS: "settings:sms",
+  TRAINING_VIEW: "training:view",
+  TRAINING_MANAGE: "training:manage",
+} as const;
 
-// Map routes/features to required permissions
+export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+
+// Map routes to required permissions
 export const ROUTE_PERMISSIONS: Record<string, Permission | null> = {
-  "/": null, // Dashboard - available to all authenticated users, but content varies
-  "/shifts": "view_shifts",
-  "/shifts/new": "manage_shifts",
-  "/employees": "manage_employees",
+  "/": null, // Home - routes to appropriate page based on permissions
+  "/dashboard": PERMISSIONS.DASHBOARD_VIEW,
+  "/shifts": PERMISSIONS.SHIFTS_VIEW,
+  "/shifts/new": PERMISSIONS.SHIFTS_MANAGE,
+  "/employees": PERMISSIONS.EMPLOYEES_MANAGE,
   "/messages": null, // Messages - available to all
-  "/training": null, // Training - available to all
-  "/reports": "view_reports",
-  "/settings": null, // Settings - available to all (profile), but org settings need manage_settings
-  "/audit-log": "view_audit_log",
+  "/training": PERMISSIONS.TRAINING_VIEW,
+  "/reports": PERMISSIONS.REPORTS_VIEW,
+  "/settings": PERMISSIONS.SETTINGS_VIEW,
+  "/audit-log": PERMISSIONS.AUDIT_LOG_VIEW,
 };
 
 export function usePermissions() {
   const { user } = useAuth();
 
-  // Fetch the user's role to get permissions
-  const { data: role, isLoading } = useQuery<Role>({
-    queryKey: ["/api/roles", user?.roleId],
-    enabled: !!user?.roleId,
-  });
+  // Permissions now come directly from the auth user
+  const permissions = user?.permissions || [];
 
-  const permissions = (role?.permissions as Permission[]) || [];
-
-  const hasPermission = (permission: Permission): boolean => {
-    // Admin role has all permissions
-    if (user?.role === "admin") return true;
+  const hasPermission = (permission: Permission | string): boolean => {
+    if (!user) return false;
     return permissions.includes(permission);
   };
 
-  const hasAnyPermission = (...perms: Permission[]): boolean => {
+  const hasAnyPermission = (...perms: (Permission | string)[]): boolean => {
     return perms.some((p) => hasPermission(p));
   };
 
-  const hasAllPermissions = (...perms: Permission[]): boolean => {
+  const hasAllPermissions = (...perms: (Permission | string)[]): boolean => {
     return perms.every((p) => hasPermission(p));
   };
 
@@ -57,13 +60,25 @@ export function usePermissions() {
     return hasPermission(requiredPermission);
   };
 
+  // Check if user can access dashboard (determines landing page)
+  const canAccessDashboard = hasPermission(PERMISSIONS.DASHBOARD_VIEW);
+
+  // Check if user can manage organization settings
+  const canManageOrgSettings = hasPermission(PERMISSIONS.SETTINGS_ORG);
+  const canManageSmsSettings = hasPermission(PERMISSIONS.SETTINGS_SMS);
+
   return {
     permissions,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
     canAccessRoute,
-    isLoading,
+    canAccessDashboard,
+    canManageOrgSettings,
+    canManageSmsSettings,
+    // Area assignments for filtering
+    areaIds: user?.areaIds || [],
+    // Legacy role checks for backwards compatibility
     isAdmin: user?.role === "admin",
     isSupervisor: user?.role === "supervisor",
     isEmployee: user?.role === "employee",

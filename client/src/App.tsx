@@ -9,11 +9,13 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { usePermissions, PERMISSIONS } from "@/hooks/use-permissions";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
 import Dashboard from "@/pages/Dashboard";
+import EmployeeHome from "@/pages/EmployeeHome";
 import Shifts from "@/pages/Shifts";
 import NewShift from "@/pages/NewShift";
 import Employees from "@/pages/Employees";
@@ -25,6 +27,7 @@ import AuditLog from "@/pages/AuditLog";
 
 function ProtectedApp() {
   const { user, isLoading } = useAuth();
+  const { canAccessDashboard, hasPermission } = usePermissions();
   const isMobile = useIsMobile();
 
   if (isLoading) {
@@ -45,13 +48,14 @@ function ProtectedApp() {
   };
 
   const userRole = user.role as "admin" | "supervisor" | "employee";
+  const displayName = user.employeeName || user.username;
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar
           userRole={userRole}
-          userName={user.username}
+          userName={displayName}
           unreadMessages={2}
         />
         <div className="flex flex-col flex-1 min-w-0">
@@ -62,20 +66,25 @@ function ProtectedApp() {
           <main className={`flex-1 overflow-auto ${isMobile ? "pb-20" : ""}`}>
             <Switch>
               <Route path="/">
-                <Dashboard />
+                {canAccessDashboard ? <Dashboard /> : <EmployeeHome />}
+              </Route>
+              <Route path="/dashboard">
+                <ProtectedRoute permission={PERMISSIONS.DASHBOARD_VIEW}>
+                  <Dashboard />
+                </ProtectedRoute>
               </Route>
               <Route path="/shifts">
-                <ProtectedRoute permission="view_shifts">
+                <ProtectedRoute permission={PERMISSIONS.SHIFTS_VIEW}>
                   <Shifts />
                 </ProtectedRoute>
               </Route>
               <Route path="/shifts/new">
-                <ProtectedRoute permission="manage_shifts">
+                <ProtectedRoute permission={PERMISSIONS.SHIFTS_MANAGE}>
                   <NewShift />
                 </ProtectedRoute>
               </Route>
               <Route path="/employees">
-                <ProtectedRoute permission="manage_employees">
+                <ProtectedRoute permission={PERMISSIONS.EMPLOYEES_MANAGE}>
                   <Employees />
                 </ProtectedRoute>
               </Route>
@@ -83,18 +92,22 @@ function ProtectedApp() {
                 <Messages />
               </Route>
               <Route path="/training">
-                <Training />
+                <ProtectedRoute permission={PERMISSIONS.TRAINING_VIEW}>
+                  <Training />
+                </ProtectedRoute>
               </Route>
               <Route path="/reports">
-                <ProtectedRoute permission="view_reports">
+                <ProtectedRoute permission={PERMISSIONS.REPORTS_VIEW}>
                   <Reports />
                 </ProtectedRoute>
               </Route>
               <Route path="/settings">
-                <Settings />
+                <ProtectedRoute permission={PERMISSIONS.SETTINGS_ORG}>
+                  <Settings />
+                </ProtectedRoute>
               </Route>
               <Route path="/audit-log">
-                <ProtectedRoute permission="view_audit_log">
+                <ProtectedRoute permission={PERMISSIONS.AUDIT_LOG_VIEW}>
                   <AuditLog />
                 </ProtectedRoute>
               </Route>
@@ -105,7 +118,7 @@ function ProtectedApp() {
         {isMobile && (
           <MobileBottomNav
             userRole={userRole}
-            userName={user.username}
+            userName={displayName}
             unreadMessages={2}
           />
         )}

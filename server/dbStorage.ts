@@ -18,6 +18,7 @@ import {
   shifts, shiftInterests, messages, trainings, auditLogs,
   organizationSettings, smsTemplates,
 } from "@shared/schema";
+import { ROLE_PERMISSIONS } from "@shared/permissions";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import pg from "pg";
@@ -44,12 +45,20 @@ export class DatabaseStorage implements IStorage {
     const existingRoles = await db.select().from(roles);
     if (existingRoles.length === 0) {
       const defaultRoles: InsertRole[] = [
-        { name: "Admin", description: "Full system access", permissions: ["manage_shifts", "view_shifts", "manage_employees", "view_reports", "export_reports", "view_audit_log", "manage_settings"], isSystem: true },
-        { name: "Supervisor", description: "Manage shifts and employees", permissions: ["manage_shifts", "view_shifts", "manage_employees", "view_reports", "export_reports", "view_audit_log"], isSystem: true },
-        { name: "Employee", description: "View and claim shifts", permissions: ["view_shifts"], isSystem: true },
+        { name: "Admin", description: "Full system access", permissions: ROLE_PERMISSIONS.admin as unknown as string[], isSystem: true },
+        { name: "Supervisor", description: "Manage shifts and employees", permissions: ROLE_PERMISSIONS.supervisor as unknown as string[], isSystem: true },
+        { name: "Employee", description: "View and claim shifts", permissions: ROLE_PERMISSIONS.employee as unknown as string[], isSystem: true },
       ];
       for (const role of defaultRoles) {
         await this.createRole(role);
+      }
+    } else {
+      // Update existing roles to use new permission format
+      for (const role of existingRoles) {
+        const roleKey = role.name.toLowerCase() as keyof typeof ROLE_PERMISSIONS;
+        if (ROLE_PERMISSIONS[roleKey]) {
+          await db.update(roles).set({ permissions: ROLE_PERMISSIONS[roleKey] as unknown as string[] }).where(eq(roles.id, role.id));
+        }
       }
     }
 

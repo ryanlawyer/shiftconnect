@@ -7,6 +7,13 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 
+// Extended user type with permissions and areas for session
+export interface AuthUser extends SelectUser {
+  permissions: string[];
+  areaIds: string[];
+  employeeName?: string;
+}
+
 const scryptAsync = promisify(scrypt);
 
 async function hashPassword(password: string) {
@@ -51,8 +58,42 @@ export function setupAuth(app: Express) {
 
   passport.serializeUser((user, done) => done(null, (user as SelectUser).id));
   passport.deserializeUser(async (id: string, done) => {
-    const user = await storage.getUser(id);
-    done(null, user);
+    try {
+      const user = await storage.getUser(id);
+      if (!user) {
+        return done(null, false);
+      }
+      
+      // Get role permissions
+      let permissions: string[] = [];
+      if (user.roleId) {
+        const role = await storage.getRole(user.roleId);
+        if (role) {
+          permissions = role.permissions || [];
+        }
+      }
+      
+      // Get employee area assignments
+      let areaIds: string[] = [];
+      let employeeName: string | undefined;
+      if (user.employeeId) {
+        const areas = await storage.getEmployeeAreas(user.employeeId);
+        areaIds = areas.map(a => a.id);
+        const employee = await storage.getEmployee(user.employeeId);
+        employeeName = employee?.name;
+      }
+      
+      const authUser: AuthUser = {
+        ...user,
+        permissions,
+        areaIds,
+        employeeName,
+      };
+      
+      done(null, authUser);
+    } catch (error) {
+      done(error, null);
+    }
   });
 
   app.post("/api/register", (_req, res) => {
@@ -72,6 +113,9 @@ export function setupAuth(app: Express) {
 
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    const user = req.user as AuthUser;
+    // Return user info without password
+    const { password, ...safeUser } = user;
+    res.json(safeUser);
   });
 }

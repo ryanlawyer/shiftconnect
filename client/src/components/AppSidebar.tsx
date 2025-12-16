@@ -27,7 +27,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { usePermissions, type Permission } from "@/hooks/use-permissions";
+import { usePermissions, PERMISSIONS } from "@/hooks/use-permissions";
 
 export interface AppSidebarProps {
   userRole?: "admin" | "supervisor" | "employee";
@@ -42,57 +42,57 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const [location] = useLocation();
   const { logoutMutation } = useAuth();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, canAccessDashboard, canManageOrgSettings } = usePermissions();
   const initials = userName.split(' ').map(n => n[0]).join('').toUpperCase();
 
   const allNavItems = [
     {
       title: "Dashboard",
-      url: "/",
+      url: "/dashboard",
       icon: LayoutDashboard,
-      permission: null as Permission | null,
+      permission: PERMISSIONS.DASHBOARD_VIEW,
     },
     {
       title: "Open Shifts",
       url: "/shifts",
       icon: Calendar,
-      permission: "view_shifts" as Permission | null,
+      permission: PERMISSIONS.SHIFTS_VIEW,
     },
     {
       title: "Messages",
       url: "/messages",
       icon: MessageSquare,
-      permission: null as Permission | null,
+      permission: null,
       badge: unreadMessages > 0 ? unreadMessages : undefined,
     },
     {
       title: "Employees",
       url: "/employees",
       icon: Users,
-      permission: "manage_employees" as Permission | null,
+      permission: PERMISSIONS.EMPLOYEES_MANAGE,
     },
     {
       title: "Training",
       url: "/training",
       icon: GraduationCap,
-      permission: null as Permission | null,
+      permission: PERMISSIONS.TRAINING_VIEW,
     },
     {
       title: "Reports",
       url: "/reports",
       icon: BarChart3,
-      permission: "view_reports" as Permission | null,
+      permission: PERMISSIONS.REPORTS_VIEW,
     },
     {
       title: "Audit Log",
       url: "/audit-log",
       icon: Shield,
-      permission: "view_audit_log" as Permission | null,
+      permission: PERMISSIONS.AUDIT_LOG_VIEW,
     },
   ];
 
   const mainNavItems = allNavItems.filter(
-    item => !item.permission || hasPermission(item.permission)
+    item => item.permission === null || hasPermission(item.permission)
   );
 
   return (
@@ -135,21 +135,23 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Settings</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={location === "/settings"}>
-                  <Link href="/settings" data-testid="nav-settings">
-                    <Settings className="h-4 w-4" />
-                    <span>Settings</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {canManageOrgSettings && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administration</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={location === "/settings"}>
+                    <Link href="/settings" data-testid="nav-settings">
+                      <Settings className="h-4 w-4" />
+                      <span>Settings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="border-t p-4">
         <div className="flex items-center gap-3">

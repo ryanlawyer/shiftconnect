@@ -1,11 +1,11 @@
 import { Redirect } from "wouter";
-import { usePermissions, type Permission } from "@/hooks/use-permissions";
-import { Loader2, ShieldAlert } from "lucide-react";
+import { usePermissions } from "@/hooks/use-permissions";
+import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 
 interface ProtectedRouteProps {
-  permission?: Permission;
+  permission?: string;
   children: React.ReactNode;
   fallback?: "redirect" | "denied";
 }
@@ -15,15 +15,7 @@ export function ProtectedRoute({
   children,
   fallback = "denied",
 }: ProtectedRouteProps) {
-  const { hasPermission, isLoading } = usePermissions();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  const { hasPermission } = usePermissions();
 
   // If no permission required, render children
   if (!permission) {
