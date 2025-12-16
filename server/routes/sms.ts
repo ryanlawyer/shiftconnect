@@ -1157,16 +1157,25 @@ router.post("/ringcentral/webhook", async (req, res) => {
       });
     }
 
-    // Build webhook URL using the Replit domain
-    const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPL_SLUG;
-    if (!replitDomain) {
+    // Build webhook URL - use request host for production compatibility
+    // In production deployments, REPLIT_DEV_DOMAIN is not available
+    let webhookUrl: string;
+    const requestHost = req.get('host');
+    const xForwardedHost = req.get('x-forwarded-host');
+    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+    
+    // Priority: x-forwarded-host (production proxy) > REPLIT_DEV_DOMAIN (dev) > request host
+    const domain = xForwardedHost || replitDevDomain || requestHost;
+    
+    if (!domain) {
       return res.status(400).json({
         success: false,
-        error: "Could not determine public URL. Please ensure REPLIT_DEV_DOMAIN is set.",
+        error: "Could not determine public URL for webhook.",
       });
     }
-
-    const webhookUrl = `https://${replitDomain}/api/sms/webhooks/ringcentral/inbound`;
+    
+    webhookUrl = `https://${domain}/api/sms/webhooks/ringcentral/inbound`;
+    console.log("Creating webhook with URL:", webhookUrl);
 
     // Check for existing subscription and delete it first
     const existingSubIdSetting = await storage.getSetting("ringcentral_webhook_subscription_id");
