@@ -667,6 +667,35 @@ export default function Settings() {
     },
   });
 
+  const cleanupAllWebhooksMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", "/api/sms/ringcentral/webhook/all", {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Webhooks Cleaned Up",
+          description: data.message || "All webhook subscriptions removed.",
+        });
+        refetchWebhookStatus();
+      } else {
+        toast({
+          title: "Cleanup Failed",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to cleanup webhook subscriptions",
+        variant: "destructive",
+      });
+    },
+  });
+
   // SMS Templates
   const { data: smsTemplates = [], isLoading: templatesLoading } = useQuery<SmsTemplate[]>({
     queryKey: ["/api/sms/templates"],
@@ -1996,6 +2025,17 @@ export default function Settings() {
                               {deleteWebhookMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                               <Trash2 className="h-4 w-4 mr-2" />
                               Disable Inbound SMS
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => cleanupAllWebhooksMutation.mutate()}
+                              disabled={cleanupAllWebhooksMutation.isPending}
+                              data-testid="button-cleanup-webhooks"
+                              className="text-muted-foreground"
+                            >
+                              {cleanupAllWebhooksMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                              Cleanup Duplicate Subscriptions
                             </Button>
                           </div>
                         </div>

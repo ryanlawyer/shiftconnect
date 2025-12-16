@@ -1311,6 +1311,111 @@ router.delete("/ringcentral/webhook", async (req, res) => {
   }
 });
 
+// List all webhook subscriptions (for cleanup)
+router.get("/ringcentral/webhook/all", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    await initializeSMSProvider();
+    const factory = smsProvider as any;
+    const provider = factory.getProvider ? factory.getProvider() : factory;
+
+    if (!provider?.platform) {
+      return res.status(400).json({
+        success: false,
+        error: "RingCentral provider not initialized. Please save your RingCentral settings first.",
+      });
+    }
+
+    const response = await provider.platform.get("/restapi/v1.0/subscription");
+    const data = await response.json();
+    
+    return res.json({
+      success: true,
+      subscriptions: data.records || [],
+      total: data.records?.length || 0,
+    });
+  } catch (error: any) {
+    console.error("Error listing webhook subscriptions:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to list webhook subscriptions",
+    });
+  }
+});
+
+// Delete all webhook subscriptions (cleanup duplicates)
+router.delete("/ringcentral/webhook/all", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    await initializeSMSProvider();
+    const factory = smsProvider as any;
+    const provider = factory.getProvider ? factory.getProvider() : factory;
+
+    if (!provider?.platform) {
+      return res.status(400).json({
+        success: false,
+        error: "RingCentral provider not initialized. Please save your RingCentral settings first.",
+      });
+    }
+
+    // List all subscriptions
+    const listResponse = await provider.platform.get("/restapi/v1.0/subscription");
+    const data = await listResponse.json();
+    const subscriptions = data.records || [];
+    
+    const deleted: string[] = [];
+    const errors: string[] = [];
+    
+    // Delete each subscription
+    for (const sub of subscriptions) {
+      try {
+        await provider.platform.delete(`/restapi/v1.0/subscription/${sub.id}`);
+        deleted.push(sub.id);
+        console.log("Deleted subscription:", sub.id);
+      } catch (error: any) {
+        errors.push(`${sub.id}: ${error.message}`);
+      }
+    }
+    
+    // Clear stored subscription info
+    await storage.setSetting("ringcentral_webhook_subscription_id", "");
+    await storage.setSetting("ringcentral_webhook_url", "");
+    await storage.setSetting("ringcentral_webhook_created_at", "");
+    await storage.setSetting("ringcentral_webhook_expires_at", "");
+
+    // Log audit event
+    await logAuditEvent({
+      action: "ringcentral_webhook_deleted",
+      actor: user,
+      targetType: "sms_provider",
+      targetId: "ringcentral",
+      targetName: "RingCentral Webhook Cleanup",
+      details: { deleted, errors, totalFound: subscriptions.length, action: "cleanup_all" },
+    });
+
+    return res.json({
+      success: true,
+      message: `Deleted ${deleted.length} subscriptions`,
+      deleted,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (error: any) {
+    console.error("Error deleting all webhook subscriptions:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to delete webhook subscriptions",
+    });
+  }
+});
+
 // Renew webhook subscription (called by cron or manually)
 router.post("/ringcentral/webhook/renew", async (req, res) => {
   const user = req.user as any;
