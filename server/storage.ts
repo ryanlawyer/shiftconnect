@@ -20,9 +20,11 @@ import { randomUUID, scryptSync, randomBytes } from "crypto";
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
+  getUsers(): Promise<User[]>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<boolean>;
   getUserByEmployeeId(employeeId: string): Promise<User | undefined>;
 
   sessionStore: session.Store;
@@ -178,6 +180,8 @@ export class MemStorage implements IStorage {
       roleId: "role-admin",
       status: "active",
       smsOptIn: true,
+      webAccessEnabled: true,
+      username: "pmorrison",
     };
     this.employees.set(adminEmployee.id, adminEmployee);
 
@@ -711,10 +715,18 @@ export class MemStorage implements IStorage {
     return this.users.get(id);
   }
 
+  async getUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
+  }
+
   async getUserByUsername(username: string): Promise<User | undefined> {
     return Array.from(this.users.values()).find(
       (user) => user.username === username,
     );
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    return this.users.delete(id);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
@@ -935,6 +947,8 @@ export class MemStorage implements IStorage {
       roleId: insertEmployee.roleId ?? null,
       status: insertEmployee.status ?? "active",
       smsOptIn: insertEmployee.smsOptIn ?? true,
+      webAccessEnabled: insertEmployee.webAccessEnabled ?? false,
+      username: insertEmployee.username ?? null,
     };
     this.employees.set(id, employee);
     return employee;

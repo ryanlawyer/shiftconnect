@@ -12,6 +12,7 @@ import {
   insertTrainingSchema,
   insertUserSchema,
 } from "@shared/schema";
+import { generateDefaultUsername, generateUniqueUsername } from "./utils/usernameGenerator";
 import { scryptSync, randomBytes } from "crypto";
 import { logAuditEvent, getClientIp } from "./audit";
 import smsRoutes from "./routes/sms";
@@ -212,21 +213,157 @@ export async function registerRoutes(
   });
 
   app.post("/api/employees", async (req, res) => {
-    const parsed = insertEmployeeSchema.safeParse(req.body);
+    const { password, areaIds, ...employeeData } = req.body;
+    
+    // Validate employee data
+    const parsed = insertEmployeeSchema.safeParse(employeeData);
     if (!parsed.success) return res.status(400).json({ error: parsed.error });
+    
+    // If web access is enabled, validate username and password
+    if (parsed.data.webAccessEnabled) {
+      // Generate username if not provided
+      if (!parsed.data.username) {
+        const allUsers = await storage.getUsers();
+        const existingUsernames = allUsers.map(u => u.username);
+        parsed.data.username = generateUniqueUsername(parsed.data.name, existingUsernames);
+      }
+      
+      // Check username is unique
+      const existingUser = await storage.getUserByUsername(parsed.data.username);
+      if (existingUser) {
+        return res.status(400).json({ error: "Username already exists" });
+      }
+      
+      // Require password for new web access
+      if (!password) {
+        return res.status(400).json({ error: "Password is required when enabling web access" });
+      }
+    }
+    
+    // Create employee
     const employee = await storage.createEmployee(parsed.data);
-    res.status(201).json(employee);
+    
+    // Set area assignments if provided
+    if (areaIds && Array.isArray(areaIds)) {
+      await storage.setEmployeeAreas(employee.id, areaIds);
+    }
+    
+    // Create user account if web access is enabled
+    if (parsed.data.webAccessEnabled && password) {
+      const salt = randomBytes(32).toString("hex");
+      const hashedPassword = scryptSync(password, salt, 64).toString("hex");
+      
+      const user = await storage.createUser({
+        username: parsed.data.username!,
+        password: `${hashedPassword}.${salt}`,
+      });
+      
+      // Link user to employee and set role
+      await storage.updateUser(user.id, {
+        employeeId: employee.id,
+        roleId: parsed.data.roleId,
+        role: parsed.data.role || "employee",
+      });
+    }
+    
+    const areas = await storage.getEmployeeAreas(employee.id);
+    const user = await storage.getUserByEmployeeId(employee.id);
+    res.status(201).json({ ...employee, areas, user: user ? { id: user.id, username: user.username } : null });
   });
 
   app.patch("/api/employees/:id", async (req, res) => {
-    const { areaIds, ...updates } = req.body;
+    const { areaIds, password, ...updates } = req.body;
+    
+    // Get existing employee
+    const existingEmployee = await storage.getEmployee(req.params.id);
+    if (!existingEmployee) return res.status(404).json({ error: "Employee not found" });
+    
+    // Check if enabling web access
+    const wasWebAccessEnabled = existingEmployee.webAccessEnabled;
+    const isWebAccessEnabled = updates.webAccessEnabled !== undefined ? updates.webAccessEnabled : wasWebAccessEnabled;
+    
+    // If enabling web access, validate username
+    if (isWebAccessEnabled) {
+      // Generate username if not provided and not already set
+      if (!updates.username && !existingEmployee.username) {
+        const allUsers = await storage.getUsers();
+        const existingUsernames = allUsers.map(u => u.username);
+        updates.username = generateUniqueUsername(updates.name || existingEmployee.name, existingUsernames);
+      }
+      
+      // Check username uniqueness (if changing)
+      const newUsername = updates.username || existingEmployee.username;
+      if (newUsername && newUsername !== existingEmployee.username) {
+        const existingUser = await storage.getUserByUsername(newUsername);
+        if (existingUser) {
+          return res.status(400).json({ error: "Username already exists" });
+        }
+      }
+      
+      // If newly enabling web access, require password
+      if (!wasWebAccessEnabled && !password) {
+        return res.status(400).json({ error: "Password is required when enabling web access" });
+      }
+    }
+    
+    // Update employee
     const employee = await storage.updateEmployee(req.params.id, updates);
     if (!employee) return res.status(404).json({ error: "Employee not found" });
+    
+    // Handle area assignments
     if (areaIds) {
       await storage.setEmployeeAreas(req.params.id, areaIds);
     }
+    
+    // Handle user account
+    let user: Awaited<ReturnType<typeof storage.getUserByEmployeeId>> | null = await storage.getUserByEmployeeId(employee.id);
+    
+    if (isWebAccessEnabled) {
+      if (!user) {
+        // Create new user account
+        const salt = randomBytes(32).toString("hex");
+        const hashedPassword = scryptSync(password!, salt, 64).toString("hex");
+        
+        user = await storage.createUser({
+          username: employee.username!,
+          password: `${hashedPassword}.${salt}`,
+        });
+        
+        await storage.updateUser(user.id, {
+          employeeId: employee.id,
+          roleId: employee.roleId,
+          role: employee.role,
+        });
+      } else {
+        // Update existing user
+        const userUpdates: any = {
+          roleId: employee.roleId,
+          role: employee.role,
+        };
+        
+        // Update username if changed
+        if (employee.username && employee.username !== user.username) {
+          userUpdates.username = employee.username;
+        }
+        
+        // Update password if provided
+        if (password) {
+          const salt = randomBytes(32).toString("hex");
+          const hashedPassword = scryptSync(password, salt, 64).toString("hex");
+          userUpdates.password = `${hashedPassword}.${salt}`;
+        }
+        
+        await storage.updateUser(user.id, userUpdates);
+        user = await storage.getUser(user.id);
+      }
+    } else if (wasWebAccessEnabled && !isWebAccessEnabled && user) {
+      // Web access was disabled - delete user account
+      await storage.deleteUser(user.id);
+      user = null;
+    }
+    
     const areas = await storage.getEmployeeAreas(employee.id);
-    res.json({ ...employee, areas });
+    res.json({ ...employee, areas, user: user ? { id: user.id, username: user.username } : null });
   });
 
   app.delete("/api/employees/:id", async (req, res) => {

@@ -70,6 +70,9 @@ export const employees = pgTable("employees", {
   roleId: varchar("role_id").references(() => roles.id),
   status: text("status").notNull().default("active"), // active, inactive
   smsOptIn: boolean("sms_opt_in").default(true).notNull(),
+  // Web access fields
+  webAccessEnabled: boolean("web_access_enabled").default(false).notNull(),
+  username: text("username"),
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });

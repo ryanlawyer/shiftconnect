@@ -26,6 +26,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 import { UserManagementDialog } from "@/components/UserManagementDialog";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -42,6 +43,9 @@ interface EmployeeFormData {
   status: string;
   smsOptIn: boolean;
   areaIds: string[];
+  webAccessEnabled: boolean;
+  username: string;
+  password: string;
 }
 
 
@@ -65,6 +69,9 @@ export default function Employees() {
     status: "active",
     smsOptIn: true,
     areaIds: [],
+    webAccessEnabled: false,
+    username: "",
+    password: "",
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -90,14 +97,14 @@ export default function Employees() {
   });
 
   const createEmployeeMutation = useMutation({
-    mutationFn: async (data: Omit<EmployeeFormData, "areaIds"> & { areaIds?: string[] }) => {
-      const { areaIds, ...employeeData } = data;
-      const response = await apiRequest("POST", "/api/employees", employeeData);
-      const newEmployee = await response.json();
-      if (areaIds && areaIds.length > 0) {
-        await apiRequest("PUT", `/api/employees/${newEmployee.id}/areas`, { areaIds });
-      }
-      return newEmployee;
+    mutationFn: async (data: EmployeeFormData) => {
+      const { areaIds, password, ...employeeData } = data;
+      const response = await apiRequest("POST", "/api/employees", { 
+        ...employeeData, 
+        areaIds,
+        password: password || undefined 
+      });
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
@@ -112,8 +119,12 @@ export default function Employees() {
 
   const updateEmployeeMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: EmployeeFormData }) => {
-      const { areaIds, ...employeeData } = data;
-      await apiRequest("PATCH", `/api/employees/${id}`, { ...employeeData, areaIds });
+      const { areaIds, password, ...employeeData } = data;
+      await apiRequest("PATCH", `/api/employees/${id}`, { 
+        ...employeeData, 
+        areaIds,
+        password: password || undefined
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
@@ -153,6 +164,9 @@ export default function Employees() {
       status: "active",
       smsOptIn: true,
       areaIds: [],
+      webAccessEnabled: false,
+      username: "",
+      password: "",
     });
   };
 
@@ -174,6 +188,9 @@ export default function Employees() {
         status: emp.status,
         smsOptIn: emp.smsOptIn,
         areaIds: emp.areas.map(a => a.id),
+        webAccessEnabled: emp.webAccessEnabled,
+        username: emp.username || "",
+        password: "",
       });
       setEditDialogOpen(true);
     }
@@ -188,6 +205,20 @@ export default function Employees() {
     if (!isValidPhoneNumber(formData.phone)) {
       toast({ title: "Please enter a valid 10-digit phone number", variant: "destructive" });
       return;
+    }
+
+    // Validate web access requirements
+    if (formData.webAccessEnabled) {
+      if (!formData.username.trim()) {
+        toast({ title: "Username is required when enabling web access", variant: "destructive" });
+        return;
+      }
+      // Password required for new employees with web access, or when first enabling web access
+      const isNewWebAccess = !editingEmployee || !editingEmployee.webAccessEnabled;
+      if (isNewWebAccess && !formData.password) {
+        toast({ title: "Password is required when enabling web access", variant: "destructive" });
+        return;
+      }
     }
 
     if (editingEmployee) {
@@ -659,6 +690,67 @@ export default function Employees() {
                 data-testid="switch-sms-optin"
               />
             </div>
+
+            <Separator />
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label>Web Access</Label>
+                <p className="text-xs text-muted-foreground">
+                  Allow this employee to log in to the web application
+                </p>
+              </div>
+              <Switch
+                checked={formData.webAccessEnabled}
+                onCheckedChange={(checked) => {
+                  setFormData(prev => {
+                    // Generate default username when enabling web access
+                    let username = prev.username;
+                    if (checked && !username && prev.name) {
+                      const nameParts = prev.name.toLowerCase().trim().split(/\s+/);
+                      if (nameParts.length >= 2) {
+                        username = nameParts[0].charAt(0) + nameParts[nameParts.length - 1].replace(/[^a-z0-9]/g, "");
+                      } else if (nameParts.length === 1) {
+                        username = nameParts[0].replace(/[^a-z0-9]/g, "");
+                      }
+                    }
+                    return { ...prev, webAccessEnabled: checked, username };
+                  });
+                }}
+                data-testid="switch-web-access"
+              />
+            </div>
+
+            {formData.webAccessEnabled && (
+              <div className="space-y-4 pl-4 border-l-2 border-muted">
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username *</Label>
+                  <Input
+                    id="username"
+                    value={formData.username}
+                    onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, "") }))}
+                    placeholder="jsmith"
+                    data-testid="input-employee-username"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used for logging in to the web application
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">
+                    {editingEmployee?.webAccessEnabled ? "New Password (leave blank to keep current)" : "Password *"}
+                  </Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder={editingEmployee?.webAccessEnabled ? "Leave blank to keep current" : "Enter password"}
+                    data-testid="input-employee-password"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3">
               <Label>Placement Assignments</Label>

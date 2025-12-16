@@ -72,6 +72,13 @@ Preferred communication style: Simple, everyday language.
 - **Shift Locations**: Managed via Settings > Organization tab (configurable list)
 - **Areas**: Managed via Settings > Organization tab (service areas/departments)
 
+### User/Employee Management
+- **Combined Management**: User accounts are managed alongside employee profiles
+- **Web Access Toggle**: Enable/disable web login for each employee
+- **Username Generation**: Auto-generates username from name (first initial + lastname)
+- **Password Management**: Set password when enabling web access, or leave blank to keep existing
+- **Linked Accounts**: User table automatically synced when employee web access changes
+
 ### Phone Number Handling
 - **Storage Format**: E.164 (+1XXXXXXXXXX) for SMS compatibility
 - **Display Format**: (555) 123-4567 for user-friendly display
