@@ -187,6 +187,45 @@ class SMSProviderFactory {
   }
 
   /**
+   * Get available SMS phone numbers (RingCentral only)
+   * Returns numbers assigned to the authenticated user that can send SMS
+   */
+  async getAvailableSmsNumbers(): Promise<{
+    success: boolean;
+    numbers?: Array<{ phoneNumber: string; canSendSms: boolean; usageType: string }>;
+    error?: string;
+  }> {
+    if (!this.currentProvider) {
+      return { success: false, error: "No SMS provider initialized" };
+    }
+    
+    // Check if the current provider supports this method
+    const provider = this.currentProvider as any;
+    if (typeof provider.getAvailableSmsNumbers === 'function') {
+      return provider.getAvailableSmsNumbers();
+    }
+    
+    return { success: false, error: "Current provider does not support phone number discovery" };
+  }
+
+  /**
+   * Initialize provider asynchronously with authentication verification (RingCentral)
+   */
+  async initializeAsync(config: SMSProviderConfig): Promise<boolean> {
+    // First do the regular initialize
+    this.initialize(config);
+    
+    // Then try async initialization if supported
+    const provider = this.currentProvider as any;
+    if (typeof provider.initializeAsync === 'function') {
+      return provider.initializeAsync(config);
+    }
+    
+    // Fallback: just return if initialized
+    return this.isInitialized();
+  }
+
+  /**
    * Dispose of the current provider and cleanup resources
    */
   async dispose(): Promise<void> {
