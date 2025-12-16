@@ -13,6 +13,25 @@ import { templateVariables, validateTemplate, previewTemplate, type TemplateCate
 import { insertSmsTemplateSchema, type Employee, type Shift } from "@shared/schema";
 
 // ============================================================
+// Message Deduplication Cache
+// ============================================================
+// Track processed message IDs to prevent duplicate webhook processing
+// RingCentral sometimes sends the same message multiple times
+const processedMessageIds = new Set<string>();
+const MESSAGE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function markMessageProcessed(messageId: string): boolean {
+  if (!messageId) return false;
+  if (processedMessageIds.has(messageId)) {
+    return false; // Already processed
+  }
+  processedMessageIds.add(messageId);
+  // Auto-cleanup after TTL
+  setTimeout(() => processedMessageIds.delete(messageId), MESSAGE_CACHE_TTL);
+  return true; // First time seeing this message
+}
+
+// ============================================================
 // SMS Command Parsing Types and Functions
 // ============================================================
 
@@ -1763,6 +1782,12 @@ router.post("/webhooks/ringcentral/inbound", async (req, res) => {
     const messageId = eventBody.id || "";
 
     if (!fromNumber || !messageBody) {
+      return res.status(200).send("OK");
+    }
+
+    // Deduplicate - skip if we've already processed this message
+    if (messageId && !markMessageProcessed(messageId)) {
+      console.log("Skipping duplicate webhook for message:", messageId);
       return res.status(200).send("OK");
     }
 
