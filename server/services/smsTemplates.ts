@@ -11,6 +11,7 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "area", description: "Area name (with parentheses if present)" },
     { name: "position", description: "Position title" },
     { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
+    { name: "bonus", description: "Bonus amount with $ sign (e.g., '$50 bonus') - empty if no bonus" },
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
     { name: "appUrl", description: "Application URL for viewing shift details" },
@@ -106,6 +107,12 @@ export function renderTemplate(template: string, context: TemplateContext): stri
     variables.endTime = context.shift.endTime;
     variables.location = context.shift.location;
     variables.smsCode = context.shift.smsCode || "";
+    // Format bonus amount with $ sign
+    if (context.shift.bonusAmount && context.shift.bonusAmount > 0) {
+      variables.bonus = `$${context.shift.bonusAmount} bonus`;
+    } else {
+      variables.bonus = "";
+    }
   }
 
   if (context.area) {
@@ -220,6 +227,7 @@ export function previewTemplate(template: string, category: TemplateCategory): s
       status: "available",
       assignedEmployeeId: null,
       smsCode: "ABC123",
+      bonusAmount: 50,
       createdAt: new Date(),
     },
     employee: {

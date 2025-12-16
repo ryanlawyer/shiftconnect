@@ -105,6 +105,7 @@ export const shifts = pgTable("shifts", {
   status: text("status").notNull().default("available"), // available, claimed, expired
   assignedEmployeeId: varchar("assigned_employee_id").references(() => employees.id),
   smsCode: text("sms_code"), // Short 6-char code for SMS replies (e.g., "ABC123")
+  bonusAmount: integer("bonus_amount"), // Optional bonus amount in dollars (e.g., 50 for $50 bonus)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
