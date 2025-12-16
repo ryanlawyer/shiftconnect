@@ -595,6 +595,114 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
   }
 
   /**
+   * Get phone numbers available to the authenticated user for SMS
+   * This is useful for diagnostics - verifying which numbers can send SMS
+   */
+  async getAvailableSmsNumbers(): Promise<{
+    success: boolean;
+    numbers?: Array<{
+      phoneNumber: string;
+      usageType: string;
+      features: string[];
+      canSendSms: boolean;
+    }>;
+    error?: string;
+  }> {
+    if (!this.platform) {
+      return { success: false, error: "RingCentral provider not initialized" };
+    }
+
+    const isAuth = await this.ensureAuthenticated();
+    if (!isAuth) {
+      return { success: false, error: "RingCentral authentication failed" };
+    }
+
+    try {
+      const response = await this.platform.get("/restapi/v1.0/account/~/extension/~/phone-number");
+      const data = await response.json() as {
+        records: Array<{
+          phoneNumber: string;
+          usageType: string;
+          features: string[];
+        }>;
+      };
+
+      const numbers = (data.records || []).map(record => ({
+        phoneNumber: record.phoneNumber,
+        usageType: record.usageType,
+        features: record.features || [],
+        canSendSms: (record.features || []).includes("SmsSender"),
+      }));
+
+      console.log("RingCentral: Available phone numbers for authenticated user:", 
+        numbers.map(n => `${n.phoneNumber} (SMS: ${n.canSendSms})`).join(", "));
+
+      return { success: true, numbers };
+    } catch (error) {
+      const err = error as Error;
+      console.error("RingCentral: Failed to get phone numbers:", err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Verify that the configured from number can send SMS
+   */
+  async verifyFromNumber(): Promise<{
+    valid: boolean;
+    configured: string;
+    message: string;
+    availableNumbers?: string[];
+  }> {
+    if (!this.config?.fromNumber) {
+      return {
+        valid: false,
+        configured: "",
+        message: "No from number configured",
+      };
+    }
+
+    const result = await this.getAvailableSmsNumbers();
+    if (!result.success || !result.numbers) {
+      return {
+        valid: false,
+        configured: this.config.fromNumber,
+        message: result.error || "Could not retrieve available phone numbers",
+      };
+    }
+
+    // Format the configured from number for comparison
+    const fromValidation = this.validatePhoneNumber(this.config.fromNumber);
+    const configuredNumber = fromValidation.formatted || this.config.fromNumber;
+
+    // Check if configured number is in the available SMS-capable numbers
+    const smsCapableNumbers = result.numbers.filter(n => n.canSendSms);
+    const availableFormatted = smsCapableNumbers.map(n => n.phoneNumber);
+    
+    const isValid = smsCapableNumbers.some(
+      n => n.phoneNumber === configuredNumber || 
+           n.phoneNumber.replace(/\D/g, '') === configuredNumber.replace(/\D/g, '')
+    );
+
+    if (isValid) {
+      return {
+        valid: true,
+        configured: configuredNumber,
+        message: "From number is valid and SMS-capable",
+        availableNumbers: availableFormatted,
+      };
+    } else {
+      return {
+        valid: false,
+        configured: configuredNumber,
+        message: `Configured number ${configuredNumber} is not assigned to the authenticated user or does not have SMS capability. ` +
+                 `Available SMS numbers: ${availableFormatted.join(", ") || "none"}`,
+        availableNumbers: availableFormatted,
+      };
+    }
+  }
+
+  /**
    * Cleanup resources
    */
   async dispose(): Promise<void> {

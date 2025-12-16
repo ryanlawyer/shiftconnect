@@ -556,6 +556,97 @@ router.get("/status", async (req, res) => {
   });
 });
 
+// === RingCentral Diagnostics - Verify From Number ===
+router.get("/diagnostics/ringcentral", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  const settings = await getSMSSettings();
+
+  if (settings.smsProvider !== "ringcentral") {
+    return res.json({
+      success: false,
+      provider: settings.smsProvider,
+      message: "RingCentral is not the active SMS provider",
+    });
+  }
+
+  // Check if configured
+  if (!settings.ringcentralClientId || !settings.ringcentralClientSecret || 
+      !settings.ringcentralJwt || !settings.ringcentralFromNumber) {
+    return res.json({
+      success: false,
+      message: "RingCentral credentials not fully configured",
+      configured: {
+        clientId: !!settings.ringcentralClientId,
+        clientSecret: !!settings.ringcentralClientSecret,
+        jwt: !!settings.ringcentralJwt,
+        fromNumber: !!settings.ringcentralFromNumber,
+      },
+    });
+  }
+
+  try {
+    // Initialize provider
+    const initialized = await initializeSMSProvider();
+    if (!initialized) {
+      return res.json({
+        success: false,
+        message: "Failed to initialize RingCentral provider",
+      });
+    }
+
+    // Import RingCentral provider to access diagnostic methods
+    const { RingCentralProvider } = await import("../services/sms/ringcentralProvider");
+    
+    // Check if smsProvider is a RingCentral provider with diagnostic methods
+    const provider = smsProvider as any;
+    if (typeof provider.verifyFromNumber !== 'function') {
+      // Create a temporary provider instance to run diagnostics
+      const rcProvider = new RingCentralProvider();
+      rcProvider.initialize({
+        provider: "ringcentral",
+        fromNumber: settings.ringcentralFromNumber,
+        ringcentralClientId: settings.ringcentralClientId,
+        ringcentralClientSecret: settings.ringcentralClientSecret,
+        ringcentralServerUrl: settings.ringcentralServerUrl,
+        ringcentralJwt: settings.ringcentralJwt,
+      });
+      
+      const verification = await rcProvider.verifyFromNumber();
+      
+      return res.json({
+        success: verification.valid,
+        configuredFromNumber: verification.configured,
+        message: verification.message,
+        availableSmsNumbers: verification.availableNumbers || [],
+        recommendation: verification.valid ? null : 
+          "Update RINGCENTRAL_FROM_NUMBER to one of the available SMS numbers, or configure the JWT for a user who owns the phone number.",
+      });
+    }
+
+    const verification = await provider.verifyFromNumber();
+    
+    return res.json({
+      success: verification.valid,
+      configuredFromNumber: verification.configured,
+      message: verification.message,
+      availableSmsNumbers: verification.availableNumbers || [],
+      recommendation: verification.valid ? null : 
+        "Update RINGCENTRAL_FROM_NUMBER to one of the available SMS numbers, or configure the JWT for a user who owns the phone number.",
+    });
+  } catch (error: any) {
+    console.error("RingCentral diagnostics error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Diagnostics failed",
+      error: error.message,
+    });
+  }
+});
+
 // === Test SMS Credentials ===
 router.post("/test", async (req, res) => {
   const user = req.user as any;
