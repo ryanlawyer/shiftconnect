@@ -4,6 +4,8 @@ import type { Employee } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { isValidPhoneNumber } from "@/lib/phoneUtils";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -654,6 +656,12 @@ export default function Settings() {
 
   const handleSave = () => {
     if (!user?.employeeId) return;
+    
+    if (profile.phone && !isValidPhoneNumber(profile.phone)) {
+      toast({ title: "Please enter a valid 10-digit phone number", variant: "destructive" });
+      return;
+    }
+    
     updateProfileMutation.mutate({
       name: profile.name,
       email: profile.email,
@@ -737,10 +745,10 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
-                  <Input
+                  <PhoneInput
                     id="phone"
                     value={profile.phone}
-                    onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                    onChange={(value) => setProfile({ ...profile, phone: value })}
                     data-testid="input-phone"
                   />
                 </div>
@@ -1503,17 +1511,16 @@ export default function Settings() {
                   <div className="flex gap-4 items-end">
                     <div className="flex-1 space-y-2">
                       <Label htmlFor="test-phone">Test Phone Number</Label>
-                      <Input
+                      <PhoneInput
                         id="test-phone"
                         value={testPhoneNumber}
-                        onChange={(e) => {
-                          setTestPhoneNumber(e.target.value);
+                        onChange={(value) => {
+                          setTestPhoneNumber(value);
                           setTestResult(null);
                         }}
-                        placeholder="+15551234567"
                         data-testid="input-test-phone"
                       />
-                      <p className="text-xs text-muted-foreground">Enter a phone number to receive the test SMS</p>
+                      <p className="text-xs text-muted-foreground">Enter 10 digits to receive the test SMS</p>
                     </div>
                     <Button
                       onClick={() => testSmsMutation.mutate(testPhoneNumber)}

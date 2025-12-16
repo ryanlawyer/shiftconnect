@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { isValidPhoneNumber } from "@/lib/phoneUtils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -178,8 +180,13 @@ export default function Employees() {
   };
 
   const handleSubmit = () => {
-    if (!formData.name.trim() || !formData.phone.trim() || !formData.positionId) {
+    if (!formData.name.trim() || !formData.positionId) {
       toast({ title: "Please fill in all required fields", variant: "destructive" });
+      return;
+    }
+    
+    if (!isValidPhoneNumber(formData.phone)) {
+      toast({ title: "Please enter a valid 10-digit phone number", variant: "destructive" });
       return;
     }
 
@@ -568,13 +575,13 @@ export default function Employees() {
 
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number *</Label>
-              <Input
+              <PhoneInput
                 id="phone"
                 value={formData.phone}
-                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="+1 (555) 123-4567"
+                onChange={(value) => setFormData(prev => ({ ...prev, phone: value }))}
                 data-testid="input-employee-phone"
               />
+              <p className="text-xs text-muted-foreground">Enter 10 digits, formatting is automatic</p>
             </div>
 
             <div className="space-y-2">

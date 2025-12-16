@@ -10,6 +10,7 @@ import {
 import { MessageSquare, Phone, MapPin, Edit2, UserCog, UserPlus, Send, History } from "lucide-react";
 import { useLocation } from "wouter";
 import type { Area } from "@shared/schema";
+import { formatPhoneDisplay } from "@/lib/phoneUtils";
 
 export type EmployeeRole = "admin" | "supervisor" | "employee";
 
@@ -128,7 +129,7 @@ export function EmployeeCard({
       <div className="flex items-center gap-2 shrink-0">
         <div className="hidden sm:flex items-center gap-1.5 text-sm text-muted-foreground mr-2">
           <Phone className="h-3 w-3" />
-          <span className="font-mono">{phone}</span>
+          <span className="font-mono">{formatPhoneDisplay(phone)}</span>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
