@@ -72,6 +72,19 @@ Preferred communication style: Simple, everyday language.
 - **Shift Locations**: Managed via Settings > Organization tab (configurable list)
 - **Areas**: Managed via Settings > Organization tab (service areas/departments)
 
+### Phone Number Handling
+- **Storage Format**: E.164 (+1XXXXXXXXXX) for SMS compatibility
+- **Display Format**: (555) 123-4567 for user-friendly display
+- **PhoneInput Component**: `client/src/components/ui/phone-input.tsx`
+  - Accepts 10-digit input with auto-formatting
+  - Handles pasted E.164 or formatted numbers correctly
+  - Emits E.164 format for storage, empty string if incomplete
+- **Utilities**: `client/src/lib/phoneUtils.ts`
+  - `formatPhoneDisplay()` - converts to (555) 123-4567
+  - `toE164()` - converts to +1XXXXXXXXXX
+  - `isValidPhoneNumber()` - validates 10-digit phone
+  - `extractDigits()` - strips formatting and country code
+
 ### Key NPM Packages
 - **UI**: Radix UI primitives, Lucide icons, class-variance-authority, embla-carousel
 - **Forms**: react-hook-form with @hookform/resolvers for Zod validation
