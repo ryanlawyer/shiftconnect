@@ -83,6 +83,13 @@ function ProtectedApp() {
                   <NewShift />
                 </ProtectedRoute>
               </Route>
+              <Route path="/shifts/:id/edit">
+                {(params) => (
+                  <ProtectedRoute permission={PERMISSIONS.SHIFTS_MANAGE}>
+                    <NewShift editId={params.id} />
+                  </ProtectedRoute>
+                )}
+              </Route>
               <Route path="/employees">
                 <ProtectedRoute permission={PERMISSIONS.EMPLOYEES_MANAGE}>
                   <Employees />

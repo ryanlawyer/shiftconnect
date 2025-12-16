@@ -24,7 +24,8 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Send, Loader2 } from "lucide-react";
-import type { Area, Position, OrganizationSetting } from "@shared/schema";
+import type { Area, Position, OrganizationSetting, Shift } from "@shared/schema";
+import { useEffect } from "react";
 
 const formSchema = z.object({
   positionId: z.string().min(1, "Position is required"),
@@ -42,9 +43,11 @@ type FormValues = z.infer<typeof formSchema>;
 export interface CreateShiftFormProps {
   onSubmit?: (data: FormValues) => void;
   onCancel?: () => void;
+  initialData?: Shift;
+  isEditing?: boolean;
 }
 
-export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
+export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: CreateShiftFormProps) {
   const { data: areas = [], isLoading: areasLoading } = useQuery<Area[]>({
     queryKey: ["/api/areas"],
   });
@@ -62,16 +65,31 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      positionId: "",
-      areaId: "",
-      location: "",
-      date: "",
-      startTime: "",
-      endTime: "",
-      requirements: "",
-      sendNotification: true,
+      positionId: initialData?.positionId || "",
+      areaId: initialData?.areaId || "",
+      location: initialData?.location || "",
+      date: initialData?.date || "",
+      startTime: initialData?.startTime || "",
+      endTime: initialData?.endTime || "",
+      requirements: initialData?.requirements || "",
+      sendNotification: !isEditing,
     },
   });
+
+  useEffect(() => {
+    if (initialData) {
+      form.reset({
+        positionId: initialData.positionId,
+        areaId: initialData.areaId,
+        location: initialData.location,
+        date: initialData.date,
+        startTime: initialData.startTime,
+        endTime: initialData.endTime,
+        requirements: initialData.requirements || "",
+        sendNotification: false,
+      });
+    }
+  }, [initialData, form]);
 
   const handleSubmit = (data: FormValues) => {
     onSubmit?.(data);
@@ -82,7 +100,7 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Calendar className="h-5 w-5" />
-          Post New Shift
+          {isEditing ? "Edit Shift" : "Post New Shift"}
         </CardTitle>
       </CardHeader>
       <Form {...form}>
@@ -278,7 +296,7 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
             </Button>
             <Button type="submit" data-testid="button-submit-shift">
               <Send className="h-4 w-4 mr-2" />
-              Post Shift
+              {isEditing ? "Update Shift" : "Post Shift"}
             </Button>
           </CardFooter>
         </form>

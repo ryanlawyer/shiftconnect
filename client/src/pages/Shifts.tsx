@@ -14,7 +14,7 @@ import {
 import { ShiftCard, type ShiftCardProps } from "@/components/ShiftCard";
 import { ShiftDetailModal } from "@/components/ShiftDetailModal";
 import { Plus, Search, Filter, Loader2, Calendar, RefreshCw } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { transformShiftsToCards, type ShiftWithDetails } from "@/lib/shiftUtils";
 import type { Area, Employee } from "@shared/schema";
 import type { InterestedEmployee } from "@/components/ShiftDetailModal";
@@ -43,6 +43,7 @@ interface ShiftDetailResponse {
 }
 
 export default function Shifts() {
+  const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [areaFilter, setAreaFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("All Status");
@@ -185,8 +186,8 @@ export default function Shifts() {
   };
   
   const handleEdit = (shiftId: string) => {
-    // Navigate to edit page
-    window.location.href = `/shifts/${shiftId}/edit`;
+    // Navigate to edit page using wouter
+    setLocation(`/shifts/${shiftId}/edit`);
   };
 
   if (isLoading) {
