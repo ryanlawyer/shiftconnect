@@ -266,16 +266,6 @@ export default function Settings() {
   const [editingLocationIndex, setEditingLocationIndex] = useState<number | null>(null);
   const [editedLocationValue, setEditedLocationValue] = useState("");
 
-  // Load locations from organization_settings
-  useEffect(() => {
-    if (settings) {
-      const locationsSetting = settings.find((s: OrganizationSetting) => s.key === "shift_locations");
-      if (locationsSetting && locationsSetting.value) {
-        setLocations(locationsSetting.value.split(",").map((l: string) => l.trim()).filter((l: string) => l));
-      }
-    }
-  }, [settings]);
-
   const saveLocationsMutation = useMutation({
     mutationFn: (locationList: string[]) =>
       apiRequest("PUT", "/api/settings/shift_locations", { value: locationList.join(",") }),
@@ -609,6 +599,12 @@ export default function Settings() {
     const thresholdSetting = settings.find(s => s.key === "urgent_shift_threshold_hours");
     if (thresholdSetting) {
       setUrgentThreshold(thresholdSetting.value);
+    }
+
+    // Load shift locations
+    const locationsSetting = settings.find(s => s.key === "shift_locations");
+    if (locationsSetting && locationsSetting.value) {
+      setLocations(locationsSetting.value.split(",").map((l: string) => l.trim()).filter((l: string) => l));
     }
 
     // Load SMS settings
