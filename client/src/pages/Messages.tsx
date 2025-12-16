@@ -62,8 +62,20 @@ function formatTimestamp(dateString: string): string {
 export default function Messages() {
   const [search, setSearch] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [urlEmployeeId, setUrlEmployeeId] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const searchString = useSearch();
+
+  // Parse employee from URL query params (runs once on mount/URL change)
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const employeeId = params.get("employee");
+    if (employeeId) {
+      setUrlEmployeeId(employeeId);
+      setSelectedEmployeeId(employeeId);
+    }
+  }, [searchString]);
 
   // Fetch all conversations
   const { data: conversations = [], isLoading: conversationsLoading } = useQuery<ConversationSummary[]>({
@@ -83,12 +95,30 @@ export default function Messages() {
     enabled: !!selectedEmployeeId,
   });
 
+  // Fetch employee details if selected via URL but no conversation exists yet
+  const { data: directEmployeeData } = useQuery<{
+    id: string;
+    name: string;
+    phone: string;
+    email?: string;
+    status: string;
+    smsOptIn: boolean;
+  }>({
+    queryKey: ["/api/employees", selectedEmployeeId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/employees/${selectedEmployeeId}`);
+      return res.json();
+    },
+    enabled: !!selectedEmployeeId && !conversationData?.employee,
+  });
+
   // Send message mutation
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
       return apiRequest("POST", "/api/sms/send", {
         employeeId: selectedEmployeeId,
-        message: content,
+        content: content,
+        messageType: "general",
       });
     },
     onSuccess: () => {
@@ -114,12 +144,14 @@ export default function Messages() {
     },
   });
 
-  // Auto-select first conversation when data loads
+  // Auto-select first conversation when data loads (only if not already selected from URL)
   useEffect(() => {
+    // Don't auto-select if we came from a URL with a specific employee
+    if (urlEmployeeId) return;
     if (conversations.length > 0 && !selectedEmployeeId) {
       setSelectedEmployeeId(conversations[0].employeeId);
     }
-  }, [conversations, selectedEmployeeId]);
+  }, [conversations, selectedEmployeeId, urlEmployeeId]);
 
   // Mark as read when selecting a conversation
   const handleSelectConversation = (employeeId: string) => {
@@ -151,7 +183,7 @@ export default function Messages() {
     isSent: msg.status === "sent" || msg.status === "delivered",
   }));
 
-  const selectedEmployee = conversationData?.employee || conversations.find(c => c.employeeId === selectedEmployeeId)?.employee;
+  const selectedEmployee = conversationData?.employee || conversations.find(c => c.employeeId === selectedEmployeeId)?.employee || directEmployeeData;
 
   // Loading state
   if (conversationsLoading) {
@@ -162,8 +194,8 @@ export default function Messages() {
     );
   }
 
-  // Empty state
-  if (conversations.length === 0) {
+  // Empty state - but still show compose if employee selected via URL
+  if (conversations.length === 0 && !urlEmployeeId) {
     return (
       <div className="flex h-full items-center justify-center" data-testid="page-messages">
         <div className="text-center">
