@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { storage } from "../storage";
-import { twilioService, type SendSMSResult, type DeliveryStatus } from "../services/twilio";
+import {
+  smsProvider,
+  type SendSMSResult,
+  type DeliveryStatus,
+  type SMSProviderType,
+} from "../services/sms";
 import { logAuditEvent, getClientIp } from "../audit";
 import { randomUUID } from "crypto";
 import { processShiftReminders, getScheduledReminderCount } from "../services/shiftReminderScheduler";
@@ -347,10 +352,23 @@ const router = Router();
 
 // Types for SMS operations
 interface SMSSettings {
+  // Provider selection
+  smsProvider: SMSProviderType;
+
+  // Twilio configuration
   twilioAccountSid: string;
   twilioAuthToken: string;
   twilioFromNumber: string;
   twilioMessagingServiceSid: string;
+
+  // RingCentral configuration
+  ringcentralClientId: string;
+  ringcentralClientSecret: string;
+  ringcentralServerUrl: string;
+  ringcentralJwt: string;
+  ringcentralFromNumber: string;
+
+  // General settings
   smsEnabled: boolean;
   smsDailyLimit: number;
   smsRateLimitPerMinute: number;
@@ -373,10 +391,23 @@ async function getSMSSettings(): Promise<SMSSettings> {
   };
 
   return {
+    // Provider selection (default to twilio for backwards compatibility)
+    smsProvider: (getValue("sms_provider", "twilio") as SMSProviderType) || "twilio",
+
+    // Twilio configuration
     twilioAccountSid: getValue("twilio_account_sid"),
     twilioAuthToken: getValue("twilio_auth_token"),
     twilioFromNumber: getValue("twilio_from_number"),
     twilioMessagingServiceSid: getValue("twilio_messaging_service_sid"),
+
+    // RingCentral configuration
+    ringcentralClientId: getValue("ringcentral_client_id"),
+    ringcentralClientSecret: getValue("ringcentral_client_secret"),
+    ringcentralServerUrl: getValue("ringcentral_server_url", "https://platform.ringcentral.com"),
+    ringcentralJwt: getValue("ringcentral_jwt"),
+    ringcentralFromNumber: getValue("ringcentral_from_number"),
+
+    // General settings
     smsEnabled: getValue("sms_enabled", "false") === "true",
     smsDailyLimit: parseInt(getValue("sms_daily_limit", "1000")),
     smsRateLimitPerMinute: parseInt(getValue("sms_rate_limit_per_minute", "60")),
@@ -391,26 +422,50 @@ async function getSMSSettings(): Promise<SMSSettings> {
   };
 }
 
-// Initialize Twilio service with current settings
-async function initializeTwilio(): Promise<boolean> {
+// Initialize SMS provider with current settings
+async function initializeSMSProvider(): Promise<boolean> {
   const settings = await getSMSSettings();
 
   if (!settings.smsEnabled) {
     return false;
   }
 
-  if (!settings.twilioAccountSid || !settings.twilioAuthToken || !settings.twilioFromNumber) {
-    return false;
-  }
-
   try {
-    twilioService.initialize({
-      accountSid: settings.twilioAccountSid,
-      authToken: settings.twilioAuthToken,
-      fromNumber: settings.twilioFromNumber,
-      messagingServiceSid: settings.twilioMessagingServiceSid || undefined,
-    });
-    return true;
+    if (settings.smsProvider === "ringcentral") {
+      // Validate RingCentral configuration
+      if (
+        !settings.ringcentralClientId ||
+        !settings.ringcentralClientSecret ||
+        !settings.ringcentralJwt ||
+        !settings.ringcentralFromNumber
+      ) {
+        return false;
+      }
+
+      smsProvider.initialize({
+        provider: "ringcentral",
+        fromNumber: settings.ringcentralFromNumber,
+        ringcentralClientId: settings.ringcentralClientId,
+        ringcentralClientSecret: settings.ringcentralClientSecret,
+        ringcentralServerUrl: settings.ringcentralServerUrl,
+        ringcentralJwt: settings.ringcentralJwt,
+      });
+    } else {
+      // Default to Twilio
+      if (!settings.twilioAccountSid || !settings.twilioAuthToken || !settings.twilioFromNumber) {
+        return false;
+      }
+
+      smsProvider.initialize({
+        provider: "twilio",
+        fromNumber: settings.twilioFromNumber,
+        twilioAccountSid: settings.twilioAccountSid,
+        twilioAuthToken: settings.twilioAuthToken,
+        twilioMessagingServiceSid: settings.twilioMessagingServiceSid || undefined,
+      });
+    }
+
+    return smsProvider.isInitialized();
   } catch {
     return false;
   }
@@ -446,13 +501,31 @@ function getWebhookBaseUrl(req: any): string {
 // === SMS Status Check ===
 router.get("/status", async (req, res) => {
   const settings = await getSMSSettings();
-  const initialized = twilioService.isInitialized();
+  const initialized = smsProvider.isInitialized();
+
+  // Check if the configured provider has valid credentials
+  let configured = false;
+  let fromNumber: string | null = null;
+
+  if (settings.smsProvider === "ringcentral") {
+    configured = !!(
+      settings.ringcentralClientId &&
+      settings.ringcentralClientSecret &&
+      settings.ringcentralJwt &&
+      settings.ringcentralFromNumber
+    );
+    fromNumber = settings.ringcentralFromNumber;
+  } else {
+    configured = !!(settings.twilioAccountSid && settings.twilioAuthToken && settings.twilioFromNumber);
+    fromNumber = settings.twilioFromNumber;
+  }
 
   res.json({
     enabled: settings.smsEnabled,
-    configured: !!(settings.twilioAccountSid && settings.twilioAuthToken && settings.twilioFromNumber),
+    provider: settings.smsProvider,
+    configured,
     initialized,
-    fromNumber: settings.twilioFromNumber ? `***${settings.twilioFromNumber.slice(-4)}` : null,
+    fromNumber: fromNumber ? `***${fromNumber.slice(-4)}` : null,
   });
 });
 
@@ -482,10 +555,10 @@ router.post("/send", async (req, res) => {
     }
   }
 
-  // Initialize Twilio if needed
-  const initialized = await initializeTwilio();
+  // Initialize SMS provider if needed
+  const initialized = await initializeSMSProvider();
   if (!initialized) {
-    return res.status(500).json({ error: "Twilio service not configured" });
+    return res.status(500).json({ error: "SMS provider not configured" });
   }
 
   // Get employee
@@ -510,11 +583,11 @@ router.post("/send", async (req, res) => {
     threadId,
   });
 
-  // Get status callback URL
-  const statusCallbackUrl = `${getWebhookBaseUrl(req)}/api/webhooks/twilio/status`;
+  // Get status callback URL based on provider
+  const statusCallbackUrl = `${getWebhookBaseUrl(req)}/api/webhooks/${settings.smsProvider}/status`;
 
-  // Send SMS
-  const result = await twilioService.sendSMSWithRetry(
+  // Send SMS using provider abstraction
+  const result = await smsProvider.sendSMSWithRetry(
     employee.phone,
     content,
     statusCallbackUrl
@@ -522,7 +595,8 @@ router.post("/send", async (req, res) => {
 
   // Update message with result
   await storage.updateMessage(message.id, {
-    twilioSid: result.twilioSid || null,
+    providerMessageId: result.messageId || result.providerMessageId || null,
+    smsProvider: settings.smsProvider,
     status: result.success ? "sent" : "failed",
     deliveryStatus: result.status as DeliveryStatus || null,
     errorCode: result.errorCode || null,
@@ -539,7 +613,8 @@ router.post("/send", async (req, res) => {
     targetName: employee.name,
     details: {
       success: result.success,
-      twilioSid: result.twilioSid,
+      provider: settings.smsProvider,
+      messageId: result.messageId,
       errorCode: result.errorCode,
       messageType,
     },
@@ -550,7 +625,7 @@ router.post("/send", async (req, res) => {
     res.json({
       success: true,
       messageId: message.id,
-      twilioSid: result.twilioSid,
+      providerMessageId: result.messageId,
     });
   } else {
     res.status(500).json({
@@ -584,14 +659,14 @@ router.post("/bulk", async (req, res) => {
     return res.status(400).json({ error: "SMS is disabled" });
   }
 
-  // Initialize Twilio
-  const initialized = await initializeTwilio();
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
   if (!initialized) {
-    return res.status(500).json({ error: "Twilio service not configured" });
+    return res.status(500).json({ error: "SMS provider not configured" });
   }
 
   const results: { employeeId: string; success: boolean; error?: string }[] = [];
-  const statusCallbackUrl = `${getWebhookBaseUrl(req)}/api/webhooks/twilio/status`;
+  const statusCallbackUrl = `${getWebhookBaseUrl(req)}/api/webhooks/${settings.smsProvider}/status`;
 
   for (const employeeId of employeeIds) {
     const employee = await storage.getEmployee(employeeId);
@@ -618,10 +693,11 @@ router.post("/bulk", async (req, res) => {
     // Send SMS (with small delay to respect rate limits)
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    const result = await twilioService.sendSMS(employee.phone, content, statusCallbackUrl);
+    const result = await smsProvider.sendSMS(employee.phone, content, statusCallbackUrl);
 
     await storage.updateMessage(message.id, {
-      twilioSid: result.twilioSid || null,
+      providerMessageId: result.messageId || result.providerMessageId || null,
+      smsProvider: settings.smsProvider,
       status: result.success ? "sent" : "failed",
       deliveryStatus: result.status as DeliveryStatus || null,
       errorCode: result.errorCode || null,
@@ -645,6 +721,7 @@ router.post("/bulk", async (req, res) => {
     targetName: `${employeeIds.length} recipients`,
     details: {
       totalRecipients: employeeIds.length,
+      provider: settings.smsProvider,
       successful: results.filter(r => r.success).length,
       failed: results.filter(r => !r.success).length,
     },
@@ -667,8 +744,8 @@ router.post("/webhooks/twilio/status", async (req, res) => {
     return res.status(400).send("Missing MessageSid");
   }
 
-  // Find message by Twilio SID
-  const message = await storage.getMessageByTwilioSid(MessageSid);
+  // Find message by provider message ID
+  const message = await storage.getMessageByProviderMessageId(MessageSid);
 
   if (message) {
     // Map Twilio status to our status
@@ -695,10 +772,213 @@ router.post("/webhooks/twilio/status", async (req, res) => {
   res.send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
 });
 
+// === RingCentral Status Webhook ===
+router.post("/webhooks/ringcentral/status", async (req, res) => {
+  // RingCentral sends event notifications in a different format
+  const { body: eventBody, event } = req.body;
+
+  // Handle validation token during subscription setup
+  if (req.headers["validation-token"]) {
+    res.set("Validation-Token", req.headers["validation-token"] as string);
+    return res.status(200).send();
+  }
+
+  if (!eventBody) {
+    return res.status(200).send("OK");
+  }
+
+  try {
+    const messageId = eventBody.id || eventBody.messageId;
+    const messageStatus = eventBody.messageStatus;
+
+    if (messageId) {
+      const message = await storage.getMessageByProviderMessageId(messageId);
+
+      if (message) {
+        // Map RingCentral status to our status
+        let status = message.status;
+        if (messageStatus === "Delivered") {
+          status = "delivered";
+        } else if (messageStatus === "DeliveryFailed" || messageStatus === "SendingFailed") {
+          status = "failed";
+        } else if (messageStatus === "Sent") {
+          status = "sent";
+        }
+
+        await storage.updateMessage(message.id, {
+          status,
+          deliveryStatus: status as DeliveryStatus,
+          deliveryTimestamp: new Date(),
+          errorCode: eventBody.errorCode || null,
+          errorMessage: eventBody.errorMessage || null,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Error processing RingCentral status webhook:", error);
+  }
+
+  res.status(200).send("OK");
+});
+
+// === RingCentral Inbound Message Webhook ===
+router.post("/webhooks/ringcentral/inbound", async (req, res) => {
+  // Handle validation token during subscription setup
+  if (req.headers["validation-token"]) {
+    res.set("Validation-Token", req.headers["validation-token"] as string);
+    return res.status(200).send();
+  }
+
+  const ipAddress = getClientIp(req);
+
+  try {
+    const eventBody = req.body.body || req.body;
+    const fromNumber = eventBody.from?.phoneNumber || eventBody.from || "";
+    const messageBody = eventBody.subject || eventBody.text || "";
+    const messageId = eventBody.id || "";
+
+    if (!fromNumber || !messageBody) {
+      return res.status(200).send("OK");
+    }
+
+    // Find employee by phone number
+    const employees = await storage.getEmployees();
+    const employee = employees.find(e => {
+      const normalizedEmployeePhone = e.phone.replace(/[^\d+]/g, "");
+      const normalizedFrom = fromNumber.replace(/[^\d+]/g, "");
+      return normalizedEmployeePhone === normalizedFrom ||
+             normalizedEmployeePhone.endsWith(normalizedFrom.slice(-10)) ||
+             normalizedFrom.endsWith(normalizedEmployeePhone.slice(-10));
+    });
+
+    if (!employee) {
+      console.log("Inbound SMS from unknown number:", fromNumber);
+      return res.status(200).send("OK");
+    }
+
+    // Parse the inbound command
+    const parsedCommand = parseInboundCommand(messageBody);
+    let responseMessage: string | null = null;
+
+    // Handle each command type (same logic as Twilio)
+    switch (parsedCommand.type) {
+      case 'stop':
+        await storage.updateEmployee(employee.id, { smsOptIn: false });
+        await logAuditEvent({
+          action: "sms_opt_out",
+          actor: null,
+          targetType: "employee",
+          targetId: employee.id,
+          targetName: employee.name,
+          details: { method: "sms_reply", provider: "ringcentral" },
+          ipAddress,
+        });
+        // RingCentral handles STOP automatically, but we still update our records
+        break;
+
+      case 'start':
+        await storage.updateEmployee(employee.id, { smsOptIn: true });
+        await logAuditEvent({
+          action: "sms_opt_in",
+          actor: null,
+          targetType: "employee",
+          targetId: employee.id,
+          targetName: employee.name,
+          details: { method: "sms_reply", provider: "ringcentral" },
+          ipAddress,
+        });
+        break;
+
+      case 'help':
+        responseMessage = "[ShiftConnect] Commands:\n" +
+          "YES - Express interest in a shift\n" +
+          "YES <code> - Interest in specific shift\n" +
+          "NO - Decline a shift\n" +
+          "CONFIRM - Confirm assigned shift\n" +
+          "CANCEL - Withdraw interest/cancel shift\n" +
+          "STATUS - Your shifts & interests\n" +
+          "SHIFTS - View available shifts\n" +
+          "STOP - Unsubscribe\n" +
+          "START - Subscribe";
+        break;
+
+      case 'status':
+        responseMessage = await handleStatus(employee);
+        break;
+
+      case 'shifts':
+        responseMessage = await handleShifts(employee);
+        break;
+
+      case 'interest_yes':
+        responseMessage = await handleInterestYes(employee, parsedCommand.shiftCode, ipAddress);
+        break;
+
+      case 'interest_no':
+        responseMessage = await handleInterestNo(employee, ipAddress);
+        break;
+
+      case 'confirm':
+        responseMessage = await handleConfirm(employee, ipAddress);
+        break;
+
+      case 'cancel':
+        responseMessage = await handleCancel(employee, ipAddress);
+        break;
+
+      case 'unknown':
+      default:
+        // Store inbound message for supervisor review
+        await storage.createMessage({
+          employeeId: employee.id,
+          direction: "inbound",
+          content: messageBody,
+          status: "delivered",
+          providerMessageId: messageId,
+          smsProvider: "ringcentral",
+          messageType: "general",
+        });
+
+        await logAuditEvent({
+          action: "sms_inbound",
+          actor: null,
+          targetType: "message",
+          targetId: undefined,
+          targetName: employee.name,
+          details: {
+            from: fromNumber,
+            body: messageBody.substring(0, 100),
+            provider: "ringcentral",
+          },
+          ipAddress,
+        });
+
+        responseMessage = "Message received. A supervisor will respond shortly. Reply HELP for available commands.";
+        break;
+    }
+
+    // If we have a response, send it back via the SMS provider
+    if (responseMessage && parsedCommand.type !== 'stop') {
+      await initializeSMSProvider();
+      await smsProvider.sendSMS(fromNumber, responseMessage);
+    }
+  } catch (error) {
+    console.error("Error processing RingCentral inbound webhook:", error);
+  }
+
+  res.status(200).send("OK");
+});
+
 // === Twilio Inbound Message Webhook ===
 router.post("/webhooks/twilio/inbound", async (req, res) => {
-  const inboundMessage = twilioService.parseInboundMessage(req.body);
+  const inboundMessage = smsProvider.parseInboundMessage(req.body);
   const ipAddress = getClientIp(req);
+
+  if (!inboundMessage) {
+    res.type("text/xml");
+    res.send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    return;
+  }
 
   // Find employee by phone number
   const employees = await storage.getEmployees();
@@ -715,7 +995,7 @@ router.post("/webhooks/twilio/inbound", async (req, res) => {
     // Unknown sender - log and respond
     console.log("Inbound SMS from unknown number:", inboundMessage.from);
     res.type("text/xml");
-    res.send(twilioService.generateResponse("Sorry, we couldn't identify your number. Please contact your supervisor."));
+    res.send(smsProvider.generateResponse("Sorry, we couldn't identify your number. Please contact your supervisor."));
     return;
   }
 
@@ -798,7 +1078,8 @@ router.post("/webhooks/twilio/inbound", async (req, res) => {
         direction: "inbound",
         content: inboundMessage.body,
         status: "delivered",
-        twilioSid: inboundMessage.messageSid,
+        providerMessageId: inboundMessage.messageId,
+        smsProvider: "twilio",
         messageType: "general",
       });
 
@@ -820,7 +1101,7 @@ router.post("/webhooks/twilio/inbound", async (req, res) => {
   }
 
   res.type("text/xml");
-  res.send(twilioService.generateResponse(responseMessage));
+  res.send(smsProvider.generateResponse(responseMessage));
 });
 
 // === Reminder Status and Manual Trigger ===
@@ -1174,4 +1455,4 @@ router.post("/conversations/:employeeId/read", async (req, res) => {
 export default router;
 
 // Export helper functions for use in other routes
-export { getSMSSettings, initializeTwilio, isQuietHours, getWebhookBaseUrl };
+export { getSMSSettings, initializeSMSProvider, isQuietHours, getWebhookBaseUrl };
