@@ -163,10 +163,31 @@ export class DatabaseStorage implements IStorage {
           isSystem: true,
           isActive: true,
         },
+        {
+          name: "Shift Reposted",
+          description: "Sent when a shift is reposted (optionally with bonus)",
+          category: "shift_repost",
+          content: "ShiftConnect: {{shiftType}} shift available on {{date}} from {{startTime}} to {{endTime}} at {{location}}{{area}}. {{bonus}} Reply YES {{smsCode}} to express interest.",
+          isSystem: true,
+          isActive: true,
+        },
       ];
       for (const template of defaultTemplates) {
         await this.createSmsTemplate(template);
       }
+    }
+
+    // Ensure shift_repost template exists (for existing databases)
+    const repostTemplate = await db.select().from(smsTemplates).where(eq(smsTemplates.category, "shift_repost"));
+    if (repostTemplate.length === 0) {
+      await this.createSmsTemplate({
+        name: "Shift Reposted",
+        description: "Sent when a shift is reposted (optionally with bonus)",
+        category: "shift_repost",
+        content: "ShiftConnect: {{shiftType}} shift available on {{date}} from {{startTime}} to {{endTime}} at {{location}}{{area}}. {{bonus}} Reply YES {{smsCode}} to express interest.",
+        isSystem: true,
+        isActive: true,
+      });
     }
 
     // Backfill SMS codes for existing shifts that don't have them

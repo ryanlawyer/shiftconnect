@@ -17,7 +17,7 @@ import { generateDefaultUsername, generateUniqueUsername } from "./utils/usernam
 import { scryptSync, randomBytes } from "crypto";
 import { logAuditEvent, getClientIp } from "./audit";
 import smsRoutes from "./routes/sms";
-import { notifyNewShift, notifyShiftAssigned, notifyShiftFilledToOthers } from "./services/smsNotifications";
+import { notifyNewShift, notifyRepostedShift, notifyShiftAssigned, notifyShiftFilledToOthers } from "./services/smsNotifications";
 import { scheduleShiftReminder, startReminderChecker, cancelShiftReminder } from "./services/shiftReminderScheduler";
 
 export async function registerRoutes(
@@ -642,9 +642,9 @@ export async function registerRoutes(
       const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
       const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
 
-      // Pass position for SMS template variables
+      // Pass position for SMS template variables - use repost-specific notification
       if (area) {
-        notifyNewShift(updatedShift, area, eligibleEmployees, webhookBaseUrl)
+        notifyRepostedShift(updatedShift, area, eligibleEmployees, webhookBaseUrl)
           .then(result => {
             console.log(`Shift repost notification sent: ${result.sent} successful, ${result.failed} failed`);
           })

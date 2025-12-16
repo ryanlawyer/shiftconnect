@@ -293,6 +293,135 @@ export async function notifyNewShift(
 }
 
 /**
+ * Send repost notification to eligible employees
+ * Uses the shift_repost template which conditionally includes bonus info
+ */
+export async function notifyRepostedShift(
+  shift: Shift,
+  area: Area | undefined,
+  recipients: Employee[],
+  webhookBaseUrl?: string
+): Promise<{ sent: number; failed: number }> {
+  const settings = await getSMSSettings();
+
+  // Check if notifications are enabled
+  if (!settings.smsEnabled || !settings.notifyOnNewShift) {
+    return { sent: 0, failed: 0 };
+  }
+
+  // Check quiet hours
+  if (
+    settings.smsRespectQuietHours &&
+    isQuietHours(settings.smsQuietHoursStart, settings.smsQuietHoursEnd)
+  ) {
+    console.log("Skipping shift repost notification during quiet hours");
+    return { sent: 0, failed: 0 };
+  }
+
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
+  if (!initialized) {
+    console.log("SMS provider not initialized, skipping notifications");
+    return { sent: 0, failed: 0 };
+  }
+
+  // Filter to only active, opted-in employees
+  const eligibleRecipients = recipients.filter((e) => e.status === "active" && e.smsOptIn);
+
+  let sent = 0;
+  let failed = 0;
+
+  // Look up position for template
+  const position = await storage.getPosition(shift.positionId);
+  
+  // Try to get shift_repost template, fall back to shift_notification, then hardcoded
+  let templateMessage = await getRenderedTemplate("shift_repost", {
+    shift,
+    area,
+    position: position ? { title: position.title } : undefined,
+  });
+  
+  // If no shift_repost template, try shift_notification as fallback
+  if (!templateMessage) {
+    templateMessage = await getRenderedTemplate("shift_notification", {
+      shift,
+      area,
+      position: position ? { title: position.title } : undefined,
+    });
+  }
+  
+  const message =
+    templateMessage ||
+    `[ShiftConnect] Shift available!\n${formatShiftDetails(shift, area)}${shift.bonusAmount ? ` - $${shift.bonusAmount} bonus!` : ''}\nReply YES ${shift.smsCode} to express interest.`;
+
+  // Build status callback URL based on provider
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
+
+  for (const employee of eligibleRecipients) {
+    try {
+      // Create message record
+      const messageRecord = await storage.createMessage({
+        employeeId: employee.id,
+        direction: "outbound",
+        content: message,
+        status: "pending",
+        messageType: "shift_notification",
+        relatedShiftId: shift.id,
+        threadId: randomUUID(),
+      });
+
+      // Send SMS using provider abstraction
+      const result = await smsProvider.sendSMS(employee.phone, message, statusCallback);
+
+      // Update message with result
+      await storage.updateMessage(messageRecord.id, {
+        providerMessageId: result.messageId || result.providerMessageId || null,
+        smsProvider: settings.smsProvider,
+        status: result.success ? "sent" : "failed",
+        deliveryStatus: result.status || null,
+        errorCode: result.errorCode || null,
+        errorMessage: result.errorMessage || null,
+        segments: result.segments || 1,
+      });
+
+      if (result.success) {
+        sent++;
+      } else {
+        failed++;
+      }
+
+      // Small delay to respect rate limits
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } catch (error) {
+      console.error(`Failed to send repost notification to ${employee.name}:`, error);
+      failed++;
+    }
+  }
+
+  // Log audit event
+  await logAuditEvent({
+    action: "sms_sent",
+    actor: null,
+    targetType: "shift",
+    targetId: shift.id,
+    targetName: formatShiftDetails(shift, area),
+    details: {
+      type: "shift_repost",
+      provider: settings.smsProvider,
+      recipientCount: eligibleRecipients.length,
+      sent,
+      failed,
+      bonusAmount: shift.bonusAmount,
+    },
+    ipAddress: undefined,
+  });
+
+  return { sent, failed };
+}
+
+/**
  * Send confirmation to employee when they are assigned to a shift
  */
 export async function notifyShiftAssigned(
