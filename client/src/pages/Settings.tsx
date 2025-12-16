@@ -260,6 +260,65 @@ export default function Settings() {
   // Organization Settings
   const [urgentThreshold, setUrgentThreshold] = useState("48");
 
+  // Locations Management
+  const [locations, setLocations] = useState<string[]>([]);
+  const [newLocation, setNewLocation] = useState("");
+  const [editingLocationIndex, setEditingLocationIndex] = useState<number | null>(null);
+  const [editedLocationValue, setEditedLocationValue] = useState("");
+
+  // Load locations from organization_settings
+  useEffect(() => {
+    if (settings) {
+      const locationsSetting = settings.find((s: OrganizationSetting) => s.key === "shift_locations");
+      if (locationsSetting && locationsSetting.value) {
+        setLocations(locationsSetting.value.split(",").map((l: string) => l.trim()).filter((l: string) => l));
+      }
+    }
+  }, [settings]);
+
+  const saveLocationsMutation = useMutation({
+    mutationFn: (locationList: string[]) =>
+      apiRequest("PUT", "/api/settings/shift_locations", { value: locationList.join(",") }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Locations Updated", description: "Shift locations have been saved." });
+    },
+    onError: (error) => {
+      toast({ title: "Save Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleAddLocation = () => {
+    if (newLocation.trim() && !locations.includes(newLocation.trim())) {
+      const updated = [...locations, newLocation.trim()];
+      setLocations(updated);
+      setNewLocation("");
+      saveLocationsMutation.mutate(updated);
+    }
+  };
+
+  const handleDeleteLocation = (index: number) => {
+    const updated = locations.filter((_, i) => i !== index);
+    setLocations(updated);
+    saveLocationsMutation.mutate(updated);
+  };
+
+  const handleEditLocation = (index: number) => {
+    setEditingLocationIndex(index);
+    setEditedLocationValue(locations[index]);
+  };
+
+  const handleSaveLocationEdit = () => {
+    if (editingLocationIndex !== null && editedLocationValue.trim()) {
+      const updated = [...locations];
+      updated[editingLocationIndex] = editedLocationValue.trim();
+      setLocations(updated);
+      setEditingLocationIndex(null);
+      setEditedLocationValue("");
+      saveLocationsMutation.mutate(updated);
+    }
+  };
+
   // SMS Settings (provider-agnostic)
   const [smsSettings, setSmsSettings] = useState({
     // Provider selection
@@ -984,6 +1043,108 @@ export default function Settings() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <MapPin className="h-5 w-5" />
+                <CardTitle>Shift Locations</CardTitle>
+              </div>
+              <CardDescription>Manage locations available for shift assignments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Add new location..."
+                    value={newLocation}
+                    onChange={(e) => setNewLocation(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddLocation()}
+                    data-testid="input-new-location"
+                  />
+                  <Button
+                    onClick={handleAddLocation}
+                    disabled={!newLocation.trim() || saveLocationsMutation.isPending}
+                    data-testid="button-add-location"
+                  >
+                    {saveLocationsMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {locations.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No locations defined yet. Add your first location above.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {locations.map((location, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                        data-testid={`location-item-${index}`}
+                      >
+                        {editingLocationIndex === index ? (
+                          <div className="flex items-center gap-2 flex-1 mr-2">
+                            <Input
+                              value={editedLocationValue}
+                              onChange={(e) => setEditedLocationValue(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && handleSaveLocationEdit()}
+                              autoFocus
+                              data-testid={`input-edit-location-${index}`}
+                            />
+                            <Button
+                              size="sm"
+                              onClick={handleSaveLocationEdit}
+                              disabled={saveLocationsMutation.isPending}
+                              data-testid={`button-save-location-${index}`}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setEditingLocationIndex(null);
+                                setEditedLocationValue("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="font-medium">{location}</p>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleEditLocation(index)}
+                                data-testid={`button-edit-location-${index}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleDeleteLocation(index)}
+                                disabled={saveLocationsMutation.isPending}
+                                data-testid={`button-delete-location-${index}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 

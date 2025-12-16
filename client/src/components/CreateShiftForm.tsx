@@ -24,10 +24,10 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Send, Loader2 } from "lucide-react";
-import type { Area } from "@shared/schema";
+import type { Area, Position, OrganizationSetting } from "@shared/schema";
 
 const formSchema = z.object({
-  position: z.string().min(1, "Position is required"),
+  positionId: z.string().min(1, "Position is required"),
   areaId: z.string().min(1, "Area is required"),
   location: z.string().min(1, "Location is required"),
   date: z.string().min(1, "Date is required"),
@@ -44,24 +44,25 @@ export interface CreateShiftFormProps {
   onCancel?: () => void;
 }
 
-const positions = [
-  "Registered Nurse",
-  "Licensed Practical Nurse",
-  "Certified Nursing Assistant",
-  "Medical Technologist",
-  "Radiology Technician",
-  "Respiratory Therapist",
-];
-
 export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
   const { data: areas = [], isLoading: areasLoading } = useQuery<Area[]>({
     queryKey: ["/api/areas"],
   });
 
+  const { data: positions = [], isLoading: positionsLoading } = useQuery<Position[]>({
+    queryKey: ["/api/positions"],
+  });
+
+  const { data: settings = [] } = useQuery<OrganizationSetting[]>({
+    queryKey: ["/api/settings"],
+  });
+
+  const locations = settings.find(s => s.key === "shift_locations")?.value?.split(",").map(l => l.trim()).filter(Boolean) || [];
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      position: "",
+      positionId: "",
       areaId: "",
       location: "",
       date: "",
@@ -90,19 +91,26 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="position"
+                name="positionId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Position</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={positionsLoading}>
                       <FormControl>
                         <SelectTrigger data-testid="select-position">
-                          <SelectValue placeholder="Select position" />
+                          {positionsLoading ? (
+                            <div className="flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Loading...
+                            </div>
+                          ) : (
+                            <SelectValue placeholder="Select position" />
+                          )}
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         {positions.map((pos) => (
-                          <SelectItem key={pos} value={pos}>{pos}</SelectItem>
+                          <SelectItem key={pos.id} value={pos.id}>{pos.title}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -151,9 +159,27 @@ export function CreateShiftForm({ onSubmit, onCancel }: CreateShiftFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Location</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., Building A, Floor 2" {...field} data-testid="input-location" />
-                  </FormControl>
+                  {locations.length > 0 ? (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-location">
+                          <SelectValue placeholder="Select location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {locations.map((loc) => (
+                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <FormControl>
+                      <Input placeholder="e.g., Building A, Floor 2" {...field} data-testid="input-location" />
+                    </FormControl>
+                  )}
+                  <FormDescription>
+                    {locations.length === 0 && "Configure locations in Settings for dropdown"}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

@@ -59,9 +59,18 @@ Preferred communication style: Simple, everyday language.
 - **PostgreSQL**: Primary database (configured via `DATABASE_URL` environment variable)
 - **connect-pg-simple**: Session storage in PostgreSQL
 
-### Third-Party Services (Planned/Partial)
-- **SMS Integration**: Application includes SMS composition UI and notification features (implementation pending)
-- **Authentication**: Passport.js with passport-local strategy (available in dependencies)
+### Third-Party Services
+- **SMS Integration**: RingCentral (primary) and Twilio (secondary) SMS providers configured
+  - RingCentral uses JWT authentication with secrets: RINGCENTRAL_CLIENT_ID, RINGCENTRAL_CLIENT_SECRET, RINGCENTRAL_JWT, RINGCENTRAL_FROM_NUMBER
+  - SMS templates managed via Settings > SMS tab
+  - Note: RingCentral requires sending from assigned extension phone numbers
+- **Authentication**: Passport.js with passport-local strategy
+  - Default admin: username "pmorrison", password "admin123"
+
+### Organization Configuration
+- **Positions**: Managed via Settings > Organization tab (RN, LPN, CNA, Medical Tech, etc.)
+- **Shift Locations**: Managed via Settings > Organization tab (configurable list)
+- **Areas**: Managed via Settings > Organization tab (service areas/departments)
 
 ### Key NPM Packages
 - **UI**: Radix UI primitives, Lucide icons, class-variance-authority, embla-carousel
