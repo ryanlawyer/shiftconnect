@@ -898,6 +898,78 @@ export default function Settings() {
 
           <Card>
             <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5" />
+                  <CardTitle>Positions</CardTitle>
+                </div>
+                <Button size="sm" onClick={() => {
+                  setEditingPosition(null);
+                  setPositionForm({ title: "", description: "" });
+                  setPositionDialogOpen(true);
+                }} data-testid="button-add-position">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Position
+                </Button>
+              </div>
+              <CardDescription>Manage job positions for employees and shift assignments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {positionsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : positions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No positions defined yet. Add your first position to get started.</p>
+              ) : (
+                <div className="space-y-2">
+                  {positions.map((position) => (
+                    <div
+                      key={position.id}
+                      className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                      data-testid={`position-item-${position.id}`}
+                    >
+                      <div>
+                        <p className="font-medium">{position.title}</p>
+                        {position.description && (
+                          <p className="text-sm text-muted-foreground">{position.description}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingPosition(position);
+                            setPositionForm({ title: position.title, description: position.description || "" });
+                            setPositionDialogOpen(true);
+                          }}
+                          data-testid={`button-edit-position-${position.id}`}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            setItemToDelete({ id: position.id, type: 'position', name: position.title });
+                            setDeleteDialogOpen(true);
+                          }}
+                          disabled={deletePositionMutation.isPending}
+                          data-testid={`button-delete-position-${position.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <div className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
                 <CardTitle>Dashboard Settings</CardTitle>
