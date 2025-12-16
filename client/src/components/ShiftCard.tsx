@@ -2,7 +2,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { MapPin, Clock, Users, Calendar, Hand, UserCheck } from "lucide-react";
+import { MapPin, Clock, Users, Calendar, Hand, UserCheck, DollarSign } from "lucide-react";
 import type { Area, Employee } from "@shared/schema";
 
 export type ShiftStatus = "available" | "claimed" | "expired";
@@ -22,6 +22,7 @@ export interface ShiftCardProps {
   status: ShiftStatus;
   interestedCount?: number;
   assignedEmployee?: Employee | null;
+  bonusAmount?: number | null;
   onShowInterest?: (id: string) => void;
   onViewDetails?: (id: string) => void;
   isAdmin?: boolean;
@@ -48,6 +49,7 @@ export function ShiftCard({
   status,
   interestedCount = 0,
   assignedEmployee,
+  bonusAmount,
   onShowInterest,
   onViewDetails,
   isAdmin = false,
@@ -85,6 +87,14 @@ export function ShiftCard({
           <MapPin className="h-4 w-4 text-muted-foreground" />
           <span>{location}</span>
         </div>
+        {bonusAmount && bonusAmount > 0 && (
+          <div className="flex items-center gap-1.5">
+            <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+            <span className="text-sm font-medium text-green-600 dark:text-green-400" data-testid={`text-bonus-${id}`}>
+              ${bonusAmount} Bonus
+            </span>
+          </div>
+        )}
         {requirements && (
           <p className="text-sm text-muted-foreground">{requirements}</p>
         )}

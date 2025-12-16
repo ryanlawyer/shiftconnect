@@ -32,6 +32,7 @@ export function transformShiftToCard(shift: ShiftWithDetails): ShiftCardProps {
     status: shift.status as "available" | "claimed" | "expired",
     interestedCount: shift.interestedCount,
     assignedEmployee: shift.assignedEmployee,
+    bonusAmount: shift.bonusAmount,
   };
 }
 
