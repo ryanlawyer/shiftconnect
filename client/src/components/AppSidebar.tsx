@@ -59,13 +59,6 @@ export function AppSidebar({
       permission: PERMISSIONS.SHIFTS_VIEW,
     },
     {
-      title: "Messages",
-      url: "/messages",
-      icon: MessageSquare,
-      permission: null,
-      badge: unreadMessages > 0 ? unreadMessages : undefined,
-    },
-    {
       title: "Employees",
       url: "/employees",
       icon: Users,
@@ -122,11 +115,6 @@ export function AppSidebar({
                     <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="h-4 w-4" />
                       <span>{item.title}</span>
-                      {item.badge && (
-                        <Badge className="ml-auto text-xs" data-testid={`badge-${item.title.toLowerCase()}`}>
-                          {item.badge}
-                        </Badge>
-                      )}
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

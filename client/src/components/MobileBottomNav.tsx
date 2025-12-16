@@ -1,7 +1,6 @@
 import { Link, useLocation } from "wouter";
 import {
   Calendar,
-  MessageSquare,
   Users,
   GraduationCap,
   LayoutDashboard,
@@ -50,20 +49,13 @@ export function MobileBottomNav({
       icon: Calendar,
       label: "Shifts",
       href: "/shifts",
-      permission: "view_shifts",
-    },
-    {
-      icon: MessageSquare,
-      label: "Messages",
-      href: "/messages",
-      badge: unreadMessages > 0 ? unreadMessages : undefined,
-      permission: null, // Available to all
+      permission: "shifts:view",
     },
     {
       icon: Users,
       label: "Employees",
       href: "/employees",
-      permission: "manage_employees",
+      permission: "employees:manage",
     },
     {
       icon: GraduationCap,
@@ -92,8 +84,8 @@ export function MobileBottomNav({
   );
 
   // Select items for bottom nav (max 5)
-  // Priority: Dashboard, Shifts, Messages, Employees (if has permission), then More
-  const priorityOrder = ["Dashboard", "Shifts", "Messages", "Employees", "Training", "Profile", "More"];
+  // Priority: Dashboard, Shifts, Employees (if has permission), then More
+  const priorityOrder = ["Dashboard", "Shifts", "Employees", "Training", "Profile", "More"];
   const sortedItems = [...availableItems].sort(
     (a, b) => priorityOrder.indexOf(a.label) - priorityOrder.indexOf(b.label)
   );

@@ -19,7 +19,6 @@ import EmployeeHome from "@/pages/EmployeeHome";
 import Shifts from "@/pages/Shifts";
 import NewShift from "@/pages/NewShift";
 import Employees from "@/pages/Employees";
-import Messages from "@/pages/Messages";
 import Training from "@/pages/Training";
 import Reports from "@/pages/Reports";
 import Settings from "@/pages/Settings";
@@ -94,9 +93,6 @@ function ProtectedApp() {
                 <ProtectedRoute permission={PERMISSIONS.EMPLOYEES_MANAGE}>
                   <Employees />
                 </ProtectedRoute>
-              </Route>
-              <Route path="/messages">
-                <Messages />
               </Route>
               <Route path="/training">
                 <ProtectedRoute permission={PERMISSIONS.TRAINING_VIEW}>
