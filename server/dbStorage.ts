@@ -390,7 +390,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteShift(id: string): Promise<boolean> {
+    // First, remove the foreign key reference from messages
+    await db.update(messages).set({ relatedShiftId: null }).where(eq(messages.relatedShiftId, id));
+    // Then delete shift interests
     await db.delete(shiftInterests).where(eq(shiftInterests.shiftId, id));
+    // Finally delete the shift
     const result = await db.delete(shifts).where(eq(shifts.id, id));
     return (result.rowCount ?? 0) > 0;
   }
