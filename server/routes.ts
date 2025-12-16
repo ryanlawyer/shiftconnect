@@ -45,6 +45,11 @@ export async function registerRoutes(
   app.post("/api/webhooks/twilio/status", smsRoutes);
   app.post("/api/webhooks/twilio/inbound", smsRoutes);
 
+  // RingCentral webhooks - MUST be registered before requireAuth middleware
+  // These endpoints receive callbacks from RingCentral and cannot have authentication
+  app.post("/api/sms/webhooks/ringcentral/status", smsRoutes);
+  app.post("/api/sms/webhooks/ringcentral/inbound", smsRoutes);
+
   // Protect all API routes defined here
   app.use("/api", requireAuth);
 
