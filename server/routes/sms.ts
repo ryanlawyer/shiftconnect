@@ -454,14 +454,28 @@ async function initializeSMSProvider(): Promise<boolean> {
         return false;
       }
 
-      smsProvider.initialize({
-        provider: "ringcentral",
+      const config = {
+        provider: "ringcentral" as const,
         fromNumber: settings.ringcentralFromNumber,
         ringcentralClientId: settings.ringcentralClientId,
         ringcentralClientSecret: settings.ringcentralClientSecret,
         ringcentralServerUrl: settings.ringcentralServerUrl,
         ringcentralJwt: settings.ringcentralJwt,
-      });
+      };
+      
+      // Use async initialization that verifies authentication
+      const rcProvider = smsProvider as any;
+      if (typeof rcProvider.initializeAsync === 'function') {
+        const authenticated = await rcProvider.initializeAsync(config);
+        if (!authenticated) {
+          console.log("RingCentral authentication failed");
+          return false;
+        }
+        return true;
+      } else {
+        // Fallback to sync initialize
+        smsProvider.initialize(config);
+      }
     } else {
       // Default to Twilio
       if (!settings.twilioAccountSid || !settings.twilioAuthToken || !settings.twilioFromNumber) {
@@ -478,7 +492,8 @@ async function initializeSMSProvider(): Promise<boolean> {
     }
 
     return smsProvider.isInitialized();
-  } catch {
+  } catch (error) {
+    console.error("Failed to initialize SMS provider:", error);
     return false;
   }
 }

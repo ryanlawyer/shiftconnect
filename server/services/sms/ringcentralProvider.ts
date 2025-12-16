@@ -117,9 +117,17 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
     });
 
     this.platform = this.sdk.platform();
-
-    // Perform JWT authentication
-    this.authenticateAsync();
+    
+    // Mark as initialized - actual auth will happen on first API call via ensureAuthenticated
+    this.initialized = true;
+  }
+  
+  /**
+   * Initialize and authenticate - async version for explicit auth
+   */
+  async initializeAsync(config: SMSProviderConfig): Promise<boolean> {
+    this.initialize(config);
+    return this.ensureAuthenticated();
   }
 
   /**
