@@ -82,7 +82,10 @@ export default function Messages() {
     queryKey: ["/api/sms/conversations"],
   });
 
-  // Fetch messages for selected conversation
+  // Check if selected employee has an existing conversation
+  const hasExistingConversation = selectedEmployeeId && conversations.some(c => c.employeeId === selectedEmployeeId);
+
+  // Fetch messages for selected conversation (only if conversation exists)
   const { data: conversationData, isLoading: messagesLoading } = useQuery<{
     employee: ConversationSummary["employee"];
     messages: SMSMessage[];
@@ -92,7 +95,7 @@ export default function Messages() {
       const res = await apiRequest("GET", `/api/sms/conversations/${selectedEmployeeId}`);
       return res.json();
     },
-    enabled: !!selectedEmployeeId,
+    enabled: !!selectedEmployeeId && hasExistingConversation,
   });
 
   // Fetch employee details if selected via URL but no conversation exists yet
@@ -109,7 +112,7 @@ export default function Messages() {
       const res = await apiRequest("GET", `/api/employees/${selectedEmployeeId}`);
       return res.json();
     },
-    enabled: !!selectedEmployeeId && !conversationData?.employee,
+    enabled: !!selectedEmployeeId && !hasExistingConversation,
   });
 
   // Send message mutation
