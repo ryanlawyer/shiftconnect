@@ -345,17 +345,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMessages(filters?: { employeeId?: string; messageType?: string; relatedShiftId?: string }): Promise<Message[]> {
-    let query = db.select().from(messages);
+    const conditions = [];
     if (filters?.employeeId) {
-      query = query.where(eq(messages.employeeId, filters.employeeId)) as typeof query;
+      conditions.push(eq(messages.employeeId, filters.employeeId));
     }
     if (filters?.messageType) {
-      query = query.where(eq(messages.messageType, filters.messageType)) as typeof query;
+      conditions.push(eq(messages.messageType, filters.messageType));
     }
     if (filters?.relatedShiftId) {
-      query = query.where(eq(messages.relatedShiftId, filters.relatedShiftId)) as typeof query;
+      conditions.push(eq(messages.relatedShiftId, filters.relatedShiftId));
     }
-    return query.orderBy(desc(messages.createdAt));
+    
+    if (conditions.length > 0) {
+      return db.select().from(messages).where(and(...conditions)).orderBy(desc(messages.createdAt));
+    }
+    return db.select().from(messages).orderBy(desc(messages.createdAt));
   }
 
   async getEmployeeMessages(employeeId: string): Promise<Message[]> {
@@ -411,17 +415,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAuditLogs(options?: { limit?: number; offset?: number; action?: string; actorId?: string; targetType?: string }): Promise<AuditLog[]> {
-    let query = db.select().from(auditLogs);
+    const conditions = [];
     if (options?.action) {
-      query = query.where(eq(auditLogs.action, options.action)) as typeof query;
+      conditions.push(eq(auditLogs.action, options.action));
     }
     if (options?.actorId) {
-      query = query.where(eq(auditLogs.actorId, options.actorId)) as typeof query;
+      conditions.push(eq(auditLogs.actorId, options.actorId));
     }
     if (options?.targetType) {
-      query = query.where(eq(auditLogs.targetType, options.targetType)) as typeof query;
+      conditions.push(eq(auditLogs.targetType, options.targetType));
     }
-    query = query.orderBy(desc(auditLogs.createdAt)) as typeof query;
+    
+    let query;
+    if (conditions.length > 0) {
+      query = db.select().from(auditLogs).where(and(...conditions)).orderBy(desc(auditLogs.createdAt));
+    } else {
+      query = db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+    }
+    
     if (options?.limit) {
       query = query.limit(options.limit) as typeof query;
     }
