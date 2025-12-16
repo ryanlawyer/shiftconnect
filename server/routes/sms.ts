@@ -669,20 +669,28 @@ router.post("/test", async (req, res) => {
 
 // === Send Individual SMS ===
 router.post("/send", async (req, res) => {
+  console.log("[SMS Send] Request received:", { body: req.body, hasUser: !!req.user });
+  
   const user = req.user as any;
   if (!user || (user.role !== "admin" && user.role !== "supervisor")) {
+    console.log("[SMS Send] Access denied - user:", user?.role);
     return res.status(403).json({ error: "Access denied" });
   }
 
   const { employeeId, content, messageType = "general", relatedShiftId } = req.body;
 
   if (!employeeId || !content) {
+    console.log("[SMS Send] Missing required fields");
     return res.status(400).json({ error: "Employee ID and content are required" });
   }
 
+  console.log("[SMS Send] Processing for employee:", employeeId);
+  
   const settings = await getSMSSettings();
+  console.log("[SMS Send] Settings:", { smsEnabled: settings.smsEnabled, provider: settings.smsProvider });
 
   if (!settings.smsEnabled) {
+    console.log("[SMS Send] SMS is disabled");
     return res.status(400).json({ error: "SMS is disabled" });
   }
 
@@ -711,6 +719,7 @@ router.post("/send", async (req, res) => {
 
   // Create message record
   const threadId = randomUUID();
+  console.log("[SMS Send] Creating message record for employee:", employee.name);
   const message = await storage.createMessage({
     employeeId,
     direction: "outbound",
@@ -720,16 +729,19 @@ router.post("/send", async (req, res) => {
     relatedShiftId: relatedShiftId || null,
     threadId,
   });
+  console.log("[SMS Send] Message record created:", message.id);
 
   // Get status callback URL based on provider
   const statusCallbackUrl = `${getWebhookBaseUrl(req)}/api/webhooks/${settings.smsProvider}/status`;
 
   // Send SMS using provider abstraction
+  console.log("[SMS Send] Sending to phone:", employee.phone);
   const result = await smsProvider.sendSMSWithRetry(
     employee.phone,
     content,
     statusCallbackUrl
   );
+  console.log("[SMS Send] Provider result:", { success: result.success, messageId: result.messageId, error: result.errorMessage });
 
   // Update message with result
   await storage.updateMessage(message.id, {
