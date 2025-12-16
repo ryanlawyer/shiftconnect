@@ -35,7 +35,7 @@ interface SMSSettings {
   smsRespectQuietHours: boolean;
 }
 
-// Helper to get SMS settings from organization settings
+// Helper to get SMS settings from organization settings with env var fallbacks
 async function getSMSSettings(): Promise<SMSSettings> {
   const settings = await storage.getSettings();
   const getValue = (key: string, defaultValue: string = ""): string => {
@@ -43,9 +43,21 @@ async function getSMSSettings(): Promise<SMSSettings> {
     return setting?.value ?? defaultValue;
   };
 
+  // Check for RingCentral env vars
+  const hasRingCentralEnvVars = !!(
+    process.env.RINGCENTRAL_CLIENT_ID &&
+    process.env.RINGCENTRAL_CLIENT_SECRET &&
+    process.env.RINGCENTRAL_JWT &&
+    process.env.RINGCENTRAL_FROM_NUMBER
+  );
+
+  // Determine provider: use ringcentral if env vars are set and no explicit db setting
+  const dbProvider = getValue("sms_provider");
+  const smsProvider = dbProvider || (hasRingCentralEnvVars ? "ringcentral" : "twilio");
+
   return {
-    // Provider selection (default to twilio for backwards compatibility)
-    smsProvider: (getValue("sms_provider", "twilio") as SMSProviderType) || "twilio",
+    // Provider selection
+    smsProvider: smsProvider as SMSProviderType,
 
     // Twilio configuration
     twilioAccountSid: getValue("twilio_account_sid"),
@@ -53,15 +65,15 @@ async function getSMSSettings(): Promise<SMSSettings> {
     twilioFromNumber: getValue("twilio_from_number"),
     twilioMessagingServiceSid: getValue("twilio_messaging_service_sid"),
 
-    // RingCentral configuration
-    ringcentralClientId: getValue("ringcentral_client_id"),
-    ringcentralClientSecret: getValue("ringcentral_client_secret"),
+    // RingCentral configuration - fallback to env vars
+    ringcentralClientId: getValue("ringcentral_client_id") || process.env.RINGCENTRAL_CLIENT_ID || "",
+    ringcentralClientSecret: getValue("ringcentral_client_secret") || process.env.RINGCENTRAL_CLIENT_SECRET || "",
     ringcentralServerUrl: getValue("ringcentral_server_url", "https://platform.ringcentral.com"),
-    ringcentralJwt: getValue("ringcentral_jwt"),
-    ringcentralFromNumber: getValue("ringcentral_from_number"),
+    ringcentralJwt: getValue("ringcentral_jwt") || process.env.RINGCENTRAL_JWT || "",
+    ringcentralFromNumber: getValue("ringcentral_from_number") || process.env.RINGCENTRAL_FROM_NUMBER || "",
 
-    // General SMS settings
-    smsEnabled: getValue("sms_enabled", "false") === "true",
+    // General SMS settings - auto-enable if RingCentral env vars are configured
+    smsEnabled: getValue("sms_enabled") === "true" || hasRingCentralEnvVars,
     smsDailyLimit: parseInt(getValue("sms_daily_limit", "1000")),
     notifyOnNewShift: getValue("notify_on_new_shift", "true") === "true",
     notifyOnShiftClaimed: getValue("notify_on_shift_claimed", "true") === "true",
