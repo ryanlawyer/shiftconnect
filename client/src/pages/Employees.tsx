@@ -226,11 +226,93 @@ export default function Employees() {
     });
   };
 
+  const sendSmsMutation = useMutation({
+    mutationFn: async ({ recipients, message }: { recipients: Recipient[]; message: string }) => {
+      const results = await Promise.all(
+        recipients.map(async (recipient) => {
+          try {
+            const response = await apiRequest("POST", "/api/sms/send", {
+              employeeId: recipient.id,
+              content: message,
+              messageType: "general",
+            });
+            
+            // Check if response is ok (apiRequest throws on non-2xx, but double-check)
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+              return { success: false, recipient, error: errorData.error || "Failed to send" };
+            }
+            
+            return { success: true, recipient };
+          } catch (error: any) {
+            // apiRequest throws on non-2xx responses
+            let errorMessage = "Failed to send SMS";
+            if (error instanceof Response) {
+              try {
+                const errorData = await error.json();
+                errorMessage = errorData.error || errorData.message || "Failed to send";
+              } catch {
+                errorMessage = `HTTP ${error.status}`;
+              }
+            } else if (error?.message) {
+              errorMessage = error.message;
+            }
+            return { success: false, recipient, error: errorMessage };
+          }
+        })
+      );
+      return results;
+    },
+    onSuccess: (results) => {
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      const failedRecipients = results.filter(r => !r.success);
+      
+      if (successCount > 0 && failCount === 0) {
+        toast({
+          title: "SMS Sent",
+          description: `Successfully sent to ${successCount} recipient${successCount > 1 ? 's' : ''}`,
+        });
+        setSmsModalOpen(false);
+        setDirectSmsEmployee(null);
+        setSelectedEmployees([]);
+      } else if (successCount > 0 && failCount > 0) {
+        const failedNames = failedRecipients.map(r => r.recipient.name).join(", ");
+        toast({
+          title: "Partially Sent",
+          description: `Sent to ${successCount}, failed for: ${failedNames}`,
+          variant: "destructive",
+        });
+        setSmsModalOpen(false);
+        setDirectSmsEmployee(null);
+        setSelectedEmployees([]);
+      } else {
+        const errorDetail = failedRecipients[0]?.error || "Unknown error";
+        toast({
+          title: "SMS Failed",
+          description: errorDetail,
+          variant: "destructive",
+        });
+        // Keep modal open so user can retry
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
+    },
+    onError: (error: any) => {
+      const message = error?.message || "An unexpected error occurred";
+      toast({
+        title: "Failed to send SMS",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSendComplete = (message: string) => {
-    console.log("Sending SMS:", message, "to", getRecipients());
-    setSmsModalOpen(false);
-    setDirectSmsEmployee(null);
-    setSelectedEmployees([]);
+    const recipients = getRecipients();
+    if (recipients.length > 0 && message.trim()) {
+      sendSmsMutation.mutate({ recipients, message });
+    }
   };
 
   const toggleEmployeeSelection = (id: string) => {
@@ -451,6 +533,7 @@ export default function Employees() {
               setSmsModalOpen(false);
               setDirectSmsEmployee(null);
             }}
+            isSending={sendSmsMutation.isPending}
           />
         </DialogContent>
       </Dialog>

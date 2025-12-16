@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { X, Send, Zap } from "lucide-react";
+import { X, Send, Zap, Loader2 } from "lucide-react";
 
 export interface Recipient {
   id: string;
@@ -16,6 +16,7 @@ export interface SMSComposePanelProps {
   onRemoveRecipient?: (id: string) => void;
   onSend?: (message: string) => void;
   onCancel?: () => void;
+  isSending?: boolean;
 }
 
 const quickTemplates = [
@@ -29,15 +30,15 @@ export function SMSComposePanel({
   onRemoveRecipient,
   onSend,
   onCancel,
+  isSending = false,
 }: SMSComposePanelProps) {
   const [message, setMessage] = useState("");
   const charCount = message.length;
   const charLimit = 160;
 
   const handleSend = () => {
-    if (message.trim() && recipients.length > 0) {
+    if (message.trim() && recipients.length > 0 && !isSending) {
       onSend?.(message);
-      setMessage("");
     }
   };
 
@@ -116,16 +117,20 @@ export function SMSComposePanel({
         )}
       </CardContent>
       <CardFooter className="flex justify-end gap-2">
-        <Button variant="outline" onClick={onCancel} data-testid="button-cancel-sms">
+        <Button variant="outline" onClick={onCancel} disabled={isSending} data-testid="button-cancel-sms">
           Cancel
         </Button>
         <Button
           onClick={handleSend}
-          disabled={!message.trim() || recipients.length === 0}
+          disabled={!message.trim() || recipients.length === 0 || isSending}
           data-testid="button-send-sms"
         >
-          <Send className="h-4 w-4 mr-2" />
-          Send to {recipients.length} recipient{recipients.length !== 1 ? 's' : ''}
+          {isSending ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4 mr-2" />
+          )}
+          {isSending ? 'Sending...' : `Send to ${recipients.length} recipient${recipients.length !== 1 ? 's' : ''}`}
         </Button>
       </CardFooter>
     </Card>
