@@ -95,13 +95,17 @@ export default function Shifts() {
 
   const assignMutation = useMutation({
     mutationFn: async ({ shiftId, employeeId, sendNotification }: { shiftId: string; employeeId: string; sendNotification: boolean }) => {
+      console.log("Assigning shift:", { shiftId, employeeId, sendNotification });
       const response = await apiRequest("POST", `/api/shifts/${shiftId}/assign`, {
         employeeId,
         sendNotification,
       });
-      return response.json();
+      const data = await response.json();
+      console.log("Assignment response:", data);
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("Assignment success:", data);
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/shifts", selectedShiftId] });
       toast({
@@ -112,6 +116,7 @@ export default function Shifts() {
       setSelectedShiftId(null);
     },
     onError: (error: any) => {
+      console.error("Assignment error:", error);
       toast({
         title: "Assignment Failed",
         description: error.message || "Failed to assign shift. Please try again.",

@@ -599,12 +599,19 @@ export async function registerRoutes(
 
   // Assign shift to employee
   app.post("/api/shifts/:id/assign", async (req, res) => {
+    console.log("Assign shift request:", { shiftId: req.params.id, body: req.body });
     const { employeeId, sendNotification, isForceAssignment } = req.body;
     const originalShift = await storage.getShift(req.params.id);
+    console.log("Original shift:", originalShift);
+    if (!originalShift) {
+      console.log("Shift not found:", req.params.id);
+      return res.status(404).json({ error: "Shift not found" });
+    }
     const shift = await storage.updateShift(req.params.id, {
       status: "claimed",
       assignedEmployeeId: employeeId,
     });
+    console.log("Updated shift:", shift);
     if (!shift) return res.status(404).json({ error: "Shift not found" });
 
     const employee = await storage.getEmployee(employeeId);
