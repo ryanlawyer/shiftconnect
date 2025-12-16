@@ -566,6 +566,107 @@ export default function Settings() {
     enabled: user?.role === "admin",
   });
 
+  // Webhook subscription status
+  const { data: webhookStatus, refetch: refetchWebhookStatus } = useQuery<{
+    success: boolean;
+    hasSubscription: boolean;
+    subscriptionId: string | null;
+    webhookUrl: string | null;
+    status: string;
+    createdAt: string | null;
+    expiresAt: string | null;
+  }>({
+    queryKey: ["/api/sms/ringcentral/webhook"],
+    enabled: user?.role === "admin" && smsSettings.smsProvider === "ringcentral",
+  });
+
+  const createWebhookMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/sms/ringcentral/webhook", {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Webhook Created",
+          description: data.message || "You can now receive inbound SMS messages.",
+        });
+        refetchWebhookStatus();
+      } else {
+        toast({
+          title: "Failed to Create Webhook",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create webhook subscription",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteWebhookMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", "/api/sms/ringcentral/webhook", {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Webhook Deleted",
+          description: data.message || "Webhook subscription removed.",
+        });
+        refetchWebhookStatus();
+      } else {
+        toast({
+          title: "Failed to Delete Webhook",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete webhook subscription",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const renewWebhookMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/sms/ringcentral/webhook/renew", {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Webhook Renewed",
+          description: `Subscription extended until ${new Date(data.expiresAt).toLocaleDateString()}`,
+        });
+        refetchWebhookStatus();
+      } else {
+        toast({
+          title: "Failed to Renew Webhook",
+          description: data.error,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to renew webhook subscription",
+        variant: "destructive",
+      });
+    },
+  });
+
   // SMS Templates
   const { data: smsTemplates = [], isLoading: templatesLoading } = useQuery<SmsTemplate[]>({
     queryKey: ["/api/sms/templates"],
@@ -1833,6 +1934,92 @@ export default function Settings() {
                     </p>
                   )}
                 </div>
+
+                {/* Inbound SMS Webhook (RingCentral only) */}
+                {smsSettings.smsProvider === "ringcentral" && smsStatus?.configured && (
+                  <>
+                    <Separator />
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <h4 className="font-medium">Inbound SMS (Receive Messages)</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Enable receiving SMS replies from employees (e.g., "YES" to express shift interest)
+                          </p>
+                        </div>
+                        {webhookStatus?.hasSubscription ? (
+                          <Badge variant="default" className="bg-green-600">Active</Badge>
+                        ) : (
+                          <Badge variant="secondary">Inactive</Badge>
+                        )}
+                      </div>
+                      
+                      {webhookStatus?.hasSubscription ? (
+                        <div className="space-y-3">
+                          <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">
+                            <div className="flex items-start gap-2">
+                              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" />
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                                  Webhook subscription is active
+                                </p>
+                                <p className="text-xs text-green-600 dark:text-green-400">
+                                  Employees can reply to SMS messages. Commands: YES, NO, HELP, STATUS, SHIFTS, STOP, START
+                                </p>
+                                {webhookStatus.expiresAt && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Expires: {new Date(webhookStatus.expiresAt).toLocaleDateString()} at {new Date(webhookStatus.expiresAt).toLocaleTimeString()}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => renewWebhookMutation.mutate()}
+                              disabled={renewWebhookMutation.isPending}
+                              data-testid="button-renew-webhook"
+                            >
+                              {renewWebhookMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                              <RefreshCw className="h-4 w-4 mr-2" />
+                              Renew Subscription
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => deleteWebhookMutation.mutate()}
+                              disabled={deleteWebhookMutation.isPending}
+                              data-testid="button-delete-webhook"
+                            >
+                              {deleteWebhookMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Disable Inbound SMS
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="p-3 rounded-lg bg-muted/50 border">
+                            <p className="text-sm text-muted-foreground">
+                              When enabled, employees can reply to shift notifications with commands like "YES" to express interest, 
+                              "SHIFTS" to see available shifts, or "STOP" to opt out of messages.
+                            </p>
+                          </div>
+                          <Button
+                            onClick={() => createWebhookMutation.mutate()}
+                            disabled={createWebhookMutation.isPending}
+                            data-testid="button-enable-webhook"
+                          >
+                            {createWebhookMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            Enable Inbound SMS
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
 
                 <Separator />
 

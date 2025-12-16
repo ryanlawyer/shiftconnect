@@ -104,6 +104,42 @@ Preferred communication style: Simple, everyday language.
 - `ringcentral_from_number` - E.164 formatted phone number
 - `ringcentral_server_url` - API endpoint (production or sandbox)
 
+#### Inbound SMS (Webhook Subscription)
+To receive SMS replies from employees, a webhook subscription must be created:
+
+**Setup via Settings > SMS tab:**
+1. Configure and save RingCentral credentials
+2. Select a valid FROM phone number
+3. In the "Inbound SMS (Receive Messages)" section, click "Enable Inbound SMS"
+4. The system will create a webhook subscription pointing to this app's public URL
+
+**How It Works:**
+- When enabled, employees can reply to SMS messages with commands
+- Webhook subscription expires after 7 days and needs renewal
+- Use "Renew Subscription" button to extend before expiration
+
+**Supported SMS Commands** (employees reply to messages):
+- `YES` or `YES <code>` - Express interest in a shift
+- `NO` - Decline a shift offer
+- `SHIFTS` - View available open shifts
+- `STATUS` - Check assigned shifts and pending interests
+- `CONFIRM` - Confirm an assigned shift
+- `CANCEL` - Cancel a shift or withdraw interest
+- `HELP` - Show available commands
+- `STOP` - Opt out of SMS notifications
+- `START` - Opt back in to SMS notifications
+
+**Webhook Settings Keys:**
+- `ringcentral_webhook_subscription_id` - Active subscription ID
+- `ringcentral_webhook_url` - Webhook endpoint URL
+- `ringcentral_webhook_expires_at` - Subscription expiration timestamp
+
+**API Endpoints:**
+- `GET /api/sms/ringcentral/webhook` - Check subscription status
+- `POST /api/sms/ringcentral/webhook` - Create new subscription
+- `DELETE /api/sms/ringcentral/webhook` - Delete subscription
+- `POST /api/sms/ringcentral/webhook/renew` - Renew subscription
+
 - **Authentication**: Passport.js with passport-local strategy
   - Default admin: username "pmorrison", password "admin123"
 

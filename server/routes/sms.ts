@@ -1031,6 +1031,291 @@ router.post("/ringcentral/refresh-numbers", async (req, res) => {
   }
 });
 
+// === RingCentral Webhook Subscription Management ===
+
+// Get webhook subscription status
+router.get("/ringcentral/webhook", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const subscriptionId = await storage.getSetting("ringcentral_webhook_subscription_id");
+    const webhookUrl = await storage.getSetting("ringcentral_webhook_url");
+    const subscriptionCreatedAt = await storage.getSetting("ringcentral_webhook_created_at");
+    const subscriptionExpiresAt = await storage.getSetting("ringcentral_webhook_expires_at");
+
+    // Check if subscription is still valid by querying RingCentral
+    let subscriptionStatus = "inactive";
+    let subscriptionDetails = null;
+
+    if (subscriptionId) {
+      try {
+        await initializeSMSProvider();
+        const provider = smsProvider as any;
+        if (provider.platform) {
+          const response = await provider.platform.get(`/restapi/v1.0/subscription/${subscriptionId}`);
+          const data = await response.json();
+          subscriptionStatus = data.status || "active";
+          subscriptionDetails = {
+            id: data.id,
+            status: data.status,
+            expirationTime: data.expirationTime,
+            eventFilters: data.eventFilters,
+          };
+        }
+      } catch (error: any) {
+        // Subscription might not exist anymore
+        if (error.response?.status === 404) {
+          subscriptionStatus = "expired";
+          // Clear stale subscription
+          await storage.setSetting("ringcentral_webhook_subscription_id", "");
+        } else {
+          console.error("Error checking subscription status:", error.message);
+          subscriptionStatus = "unknown";
+        }
+      }
+    }
+
+    // Normalize status for comparison (RingCentral returns "Active", our fallback uses "active")
+    const isActive = !!subscriptionId && subscriptionStatus.toLowerCase() === "active";
+    
+    return res.json({
+      success: true,
+      hasSubscription: isActive,
+      subscriptionId: subscriptionId || null,
+      webhookUrl: webhookUrl || null,
+      status: subscriptionStatus,
+      createdAt: subscriptionCreatedAt || null,
+      expiresAt: subscriptionExpiresAt || null,
+      details: subscriptionDetails,
+    });
+  } catch (error: any) {
+    console.error("Error getting webhook status:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to get webhook status",
+    });
+  }
+});
+
+// Create webhook subscription
+router.post("/ringcentral/webhook", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const settings = await getSMSSettings();
+
+    if (settings.smsProvider !== "ringcentral") {
+      return res.status(400).json({
+        success: false,
+        error: "RingCentral is not the active SMS provider",
+      });
+    }
+
+    // Initialize provider
+    await initializeSMSProvider();
+    const provider = smsProvider as any;
+
+    if (!provider.platform) {
+      return res.status(400).json({
+        success: false,
+        error: "RingCentral provider not initialized",
+      });
+    }
+
+    // Build webhook URL using the Replit domain
+    const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPL_SLUG;
+    if (!replitDomain) {
+      return res.status(400).json({
+        success: false,
+        error: "Could not determine public URL. Please ensure REPLIT_DEV_DOMAIN is set.",
+      });
+    }
+
+    const webhookUrl = `https://${replitDomain}/api/sms/webhooks/ringcentral/inbound`;
+
+    // Check for existing subscription and delete it first
+    const existingSubId = await storage.getSetting("ringcentral_webhook_subscription_id");
+    if (existingSubId) {
+      try {
+        await provider.platform.delete(`/restapi/v1.0/subscription/${existingSubId}`);
+        console.log("Deleted existing webhook subscription:", existingSubId);
+      } catch (error: any) {
+        // Ignore 404 errors (already deleted)
+        if (error.response?.status !== 404) {
+          console.warn("Error deleting existing subscription:", error.message);
+        }
+      }
+    }
+
+    // Create new subscription
+    const response = await provider.platform.post("/restapi/v1.0/subscription", {
+      eventFilters: [
+        "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS",
+      ],
+      deliveryMode: {
+        transportType: "WebHook",
+        address: webhookUrl,
+      },
+      expiresIn: 604800, // 7 days (will need renewal)
+    });
+
+    const data = await response.json();
+
+    // Store subscription info
+    await storage.setSetting("ringcentral_webhook_subscription_id", data.id);
+    await storage.setSetting("ringcentral_webhook_url", webhookUrl);
+    await storage.setSetting("ringcentral_webhook_created_at", new Date().toISOString());
+    await storage.setSetting("ringcentral_webhook_expires_at", data.expirationTime);
+
+    // Log audit event
+    await logAuditEvent({
+      action: "ringcentral_webhook_created",
+      actor: user,
+      targetType: "sms_provider",
+      targetId: "ringcentral",
+      targetName: "RingCentral Webhook Subscription",
+      details: {
+        subscriptionId: data.id,
+        webhookUrl,
+        expirationTime: data.expirationTime,
+      },
+    });
+
+    console.log("Created RingCentral webhook subscription:", data.id);
+
+    return res.json({
+      success: true,
+      subscriptionId: data.id,
+      webhookUrl,
+      status: data.status,
+      expiresAt: data.expirationTime,
+      message: "Webhook subscription created successfully. You can now receive inbound SMS messages.",
+    });
+  } catch (error: any) {
+    console.error("Error creating webhook subscription:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to create webhook subscription",
+    });
+  }
+});
+
+// Delete webhook subscription
+router.delete("/ringcentral/webhook", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const subscriptionId = await storage.getSetting("ringcentral_webhook_subscription_id");
+
+    if (!subscriptionId) {
+      return res.json({
+        success: true,
+        message: "No webhook subscription to delete",
+      });
+    }
+
+    // Initialize provider
+    await initializeSMSProvider();
+    const provider = smsProvider as any;
+
+    if (provider.platform) {
+      try {
+        await provider.platform.delete(`/restapi/v1.0/subscription/${subscriptionId}`);
+        console.log("Deleted webhook subscription:", subscriptionId);
+      } catch (error: any) {
+        if (error.response?.status !== 404) {
+          console.warn("Error deleting subscription:", error.message);
+        }
+      }
+    }
+
+    // Clear stored subscription info
+    await storage.setSetting("ringcentral_webhook_subscription_id", "");
+    await storage.setSetting("ringcentral_webhook_url", "");
+    await storage.setSetting("ringcentral_webhook_created_at", "");
+    await storage.setSetting("ringcentral_webhook_expires_at", "");
+
+    // Log audit event
+    await logAuditEvent({
+      action: "ringcentral_webhook_deleted",
+      actor: user,
+      targetType: "sms_provider",
+      targetId: "ringcentral",
+      targetName: "RingCentral Webhook Subscription",
+      details: { subscriptionId },
+    });
+
+    return res.json({
+      success: true,
+      message: "Webhook subscription deleted successfully",
+    });
+  } catch (error: any) {
+    console.error("Error deleting webhook subscription:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to delete webhook subscription",
+    });
+  }
+});
+
+// Renew webhook subscription (called by cron or manually)
+router.post("/ringcentral/webhook/renew", async (req, res) => {
+  const user = req.user as any;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ success: false, error: "Admin access required" });
+  }
+
+  try {
+    const subscriptionId = await storage.getSetting("ringcentral_webhook_subscription_id");
+
+    if (!subscriptionId) {
+      return res.status(400).json({
+        success: false,
+        error: "No webhook subscription to renew",
+      });
+    }
+
+    await initializeSMSProvider();
+    const provider = smsProvider as any;
+
+    if (!provider.platform) {
+      return res.status(400).json({
+        success: false,
+        error: "RingCentral provider not initialized",
+      });
+    }
+
+    const response = await provider.platform.post(`/restapi/v1.0/subscription/${subscriptionId}/renew`);
+    const data = await response.json();
+
+    // Update expiration time
+    await storage.setSetting("ringcentral_webhook_expires_at", data.expirationTime);
+
+    return res.json({
+      success: true,
+      subscriptionId: data.id,
+      status: data.status,
+      expiresAt: data.expirationTime,
+      message: "Webhook subscription renewed successfully",
+    });
+  } catch (error: any) {
+    console.error("Error renewing webhook subscription:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Failed to renew webhook subscription",
+    });
+  }
+});
+
 // === Test SMS Credentials ===
 router.post("/test", async (req, res) => {
   const user = req.user as any;

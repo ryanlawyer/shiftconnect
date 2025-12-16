@@ -38,7 +38,9 @@ export type AuditAction =
   | "setting_updated"
   // RingCentral configuration actions
   | "ringcentral_credentials_import"
-  | "ringcentral_jwt_selected";
+  | "ringcentral_jwt_selected"
+  | "ringcentral_webhook_created"
+  | "ringcentral_webhook_deleted";
 
 export type TargetType = "role" | "shift" | "user" | "employee" | "area" | "position" | "message" | "setting" | "sms_provider";
 
