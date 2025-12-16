@@ -108,16 +108,32 @@ export default function Dashboard() {
 
     // Helper to parse date string and time into a Date object
     const parseShiftDateTime = (dateStr: string, timeStr: string): Date => {
-      // dateStr format: "Mon, Dec 16, 2024" or similar human-readable format
-      // Parse the date part first
-      const datePart = new Date(dateStr);
-      if (isNaN(datePart.getTime())) {
-        return new Date(NaN); // Invalid date
+      // Handle ISO format dates (YYYY-MM-DD) to avoid timezone issues
+      // When parsing "2024-12-16" directly, JS treats it as UTC midnight which can shift days
+      let year: number, month: number, day: number;
+      
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        // ISO format: "2024-12-16"
+        const [y, m, d] = dateStr.split("-").map(Number);
+        year = y;
+        month = m - 1; // JS months are 0-indexed
+        day = d;
+      } else {
+        // Try parsing as human-readable format
+        const parsed = new Date(dateStr);
+        if (isNaN(parsed.getTime())) {
+          return new Date(NaN);
+        }
+        year = parsed.getFullYear();
+        month = parsed.getMonth();
+        day = parsed.getDate();
       }
+      
       // Parse time (HH:MM format)
       const [hours, minutes] = timeStr.split(":").map(Number);
-      datePart.setHours(hours, minutes, 0, 0);
-      return datePart;
+      
+      // Create date in local timezone
+      return new Date(year, month, day, hours, minutes, 0, 0);
     };
 
     const filtered = shifts.filter(shift => {
