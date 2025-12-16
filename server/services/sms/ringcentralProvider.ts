@@ -243,20 +243,33 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
       };
     }
 
-    // Validate phone number
-    const validation = this.validatePhoneNumber(to);
-    if (!validation.valid) {
+    // Validate and format recipient phone number
+    const toValidation = this.validatePhoneNumber(to);
+    if (!toValidation.valid) {
       return {
         success: false,
         errorCode: "INVALID_PHONE",
-        errorMessage: validation.error,
+        errorMessage: toValidation.error,
+      };
+    }
+
+    // Validate and format the from number (must be E.164)
+    const fromValidation = this.validatePhoneNumber(this.config.fromNumber);
+    if (!fromValidation.valid) {
+      console.error("RingCentral: Invalid from number format:", this.config.fromNumber);
+      return {
+        success: false,
+        errorCode: "INVALID_FROM_NUMBER",
+        errorMessage: `From number must be in E.164 format: ${fromValidation.error}`,
       };
     }
 
     try {
+      console.log(`RingCentral: Sending SMS from ${fromValidation.formatted} to ${toValidation.formatted}`);
+      
       const response = await this.platform.post("/restapi/v1.0/account/~/extension/~/sms", {
-        from: { phoneNumber: this.config.fromNumber },
-        to: [{ phoneNumber: validation.formatted }],
+        from: { phoneNumber: fromValidation.formatted },
+        to: [{ phoneNumber: toValidation.formatted }],
         text: body,
       });
 
@@ -265,6 +278,8 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
       // Check for delivery status in response
       const recipientStatus = data.to?.[0]?.messageStatus;
       const messageStatus = recipientStatus || data.messageStatus;
+      
+      console.log(`RingCentral: SMS sent, messageId=${data.id}, status=${messageStatus}`);
 
       return {
         success: messageStatus !== "SendingFailed" && messageStatus !== "DeliveryFailed",
@@ -275,6 +290,7 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
       };
     } catch (error: unknown) {
       const rcError = this.classifyError(error);
+      console.error(`RingCentral: SMS send failed - code=${rcError.code}, message=${rcError.message}`);
       return {
         success: false,
         errorCode: rcError.code,
@@ -606,13 +622,50 @@ export class RingCentralProvider implements ISMSProvider, ISubscriptionSMSProvid
    * Classify RingCentral error
    */
   private classifyError(error: unknown): { code: string; message: string; type: ErrorType } {
+    // RingCentral SDK may throw errors in different formats
     const err = error as {
-      response?: { data?: { errorCode?: string; message?: string } };
+      response?: { 
+        data?: { errorCode?: string; message?: string };
+        json?: () => Promise<{ errorCode?: string; message?: string }>;
+        status?: number;
+      };
       message?: string;
+      apiError?: {
+        errorCode?: string;
+        message?: string;
+      };
     };
 
-    const code = err.response?.data?.errorCode || "UNKNOWN";
-    const message = err.response?.data?.message || err.message || "Unknown error";
+    let code = "UNKNOWN";
+    let message = "Unknown error";
+
+    // Try multiple ways to extract error info from RingCentral SDK
+    if (err.apiError?.errorCode) {
+      code = err.apiError.errorCode;
+      message = err.apiError.message || message;
+    } else if (err.response?.data?.errorCode) {
+      code = err.response.data.errorCode;
+      message = err.response.data.message || message;
+    } else if (err.message) {
+      message = err.message;
+      // Check for rate limit in message
+      if (err.message.includes("429") || err.message.toLowerCase().includes("rate limit")) {
+        code = "CMN-301";
+      }
+      // Check for auth errors
+      if (err.message.includes("401") || err.message.toLowerCase().includes("unauthorized")) {
+        code = "AUTH_FAILED";
+      }
+    }
+    
+    // Log full error for debugging
+    console.error("RingCentral error details:", JSON.stringify({
+      code,
+      message,
+      rawError: err.message,
+      responseStatus: err.response?.status,
+    }));
+
     const type = RINGCENTRAL_ERROR_CODES[code] || "permanent";
 
     return { code, message, type };
