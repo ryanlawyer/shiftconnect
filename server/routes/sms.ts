@@ -109,15 +109,18 @@ async function handleInterestYes(
   shiftCode?: string,
   ipAddress?: string
 ): Promise<string> {
+  console.log(`handleInterestYes called - employee: ${employee.name}, shiftCode: ${shiftCode || 'none'}`);
   let shift: Shift | undefined;
 
   if (shiftCode) {
     // Look up shift by SMS code
     shift = await storage.getShiftBySmsCode(shiftCode);
+    console.log(`Shift lookup by code ${shiftCode}: ${shift ? `found (${shift.id})` : 'NOT FOUND'}`);
     if (!shift) {
       return `Sorry, we couldn't find a shift with code ${shiftCode}. Reply SHIFTS to see available shifts.`;
     }
   } else {
+    console.log(`No shift code provided, looking up by recent notification`);
     // Find most recent shift notification sent to this employee
     const recentMessages = await storage.getEmployeeMessages(employee.id);
     const lastNotification = recentMessages
@@ -1783,12 +1786,14 @@ router.post("/webhooks/ringcentral/inbound", async (req, res) => {
   }
 
   const ipAddress = getClientIp(req);
+  console.log("RingCentral inbound webhook received:", JSON.stringify(req.body, null, 2));
 
   try {
     const eventBody = req.body.body || req.body;
     const fromNumber = eventBody.from?.phoneNumber || eventBody.from || "";
     const messageBody = eventBody.subject || eventBody.text || "";
     const messageId = eventBody.id || "";
+    console.log(`Processing inbound - messageId: ${messageId}, from: ${fromNumber}, body: "${messageBody}"`);
 
     if (!fromNumber || !messageBody) {
       return res.status(200).send("OK");
@@ -1831,6 +1836,7 @@ router.post("/webhooks/ringcentral/inbound", async (req, res) => {
 
     // Parse the inbound command
     const parsedCommand = parseInboundCommand(messageBody);
+    console.log(`Inbound SMS parsed - type: ${parsedCommand.type}, shiftCode: ${parsedCommand.shiftCode || 'none'}, message: "${messageBody}"`);
     let responseMessage: string | null = null;
 
     // Handle each command type (same logic as Twilio)

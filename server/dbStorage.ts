@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import {
   type User, type InsertUser,
   type Role, type InsertRole,
@@ -388,7 +388,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getShiftBySmsCode(smsCode: string): Promise<Shift | undefined> {
-    const result = await db.select().from(shifts).where(eq(shifts.smsCode, smsCode));
+    // Case-insensitive lookup for SMS codes
+    const result = await db.select().from(shifts).where(
+      sql`UPPER(${shifts.smsCode}) = UPPER(${smsCode})`
+    );
     return result[0];
   }
 
