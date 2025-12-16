@@ -61,9 +61,49 @@ Preferred communication style: Simple, everyday language.
 
 ### Third-Party Services
 - **SMS Integration**: RingCentral (primary) and Twilio (secondary) SMS providers configured
-  - RingCentral uses JWT authentication with secrets: RINGCENTRAL_CLIENT_ID, RINGCENTRAL_CLIENT_SECRET, RINGCENTRAL_JWT, RINGCENTRAL_FROM_NUMBER
   - SMS templates managed via Settings > SMS tab
-  - Note: RingCentral requires sending from assigned extension phone numbers
+  - Provider selection and configuration in Settings > SMS tab
+
+#### RingCentral SMS Configuration
+- **Authentication**: JWT-based authentication
+- **Required Settings**:
+  - Client ID and Client Secret from RingCentral Developer Portal
+  - JWT token for the extension that will send SMS
+  - From Phone Number (must be assigned to the authenticated extension)
+- **Credential Import**: Supports JSON import with format:
+  ```json
+  {
+    "clientId": "xxx",
+    "clientSecret": "xxx",
+    "server": "https://platform.ringcentral.com",
+    "jwt": { "ITS": "jwt_token_here" },
+    "fromNumber": "+1XXXXXXXXXX"
+  }
+  ```
+- **JWT Aliases**: Multiple JWT tokens can be stored with aliases (e.g., "ITS", "Nursing")
+  - Select active JWT from dropdown to switch between extensions
+  - Each JWT authenticates a different RingCentral user/extension
+
+**CRITICAL: From Phone Number Configuration**
+- The FROM number MUST be an SMS-capable number assigned to the authenticated extension
+- Use the "Refresh" button next to the phone number dropdown to discover available numbers
+- The dropdown will only show numbers with SMS capability ("SmsSender" feature)
+- If the FROM number doesn't belong to the extension, SMS sending will fail with "Phone number doesn't belong to extension" error
+- Phone numbers are automatically formatted to E.164 format (+1XXXXXXXXXX)
+
+**RingCentral App Permissions** (in Developer Portal):
+- `SMS` - Required for sending/receiving SMS
+- `ReadAccounts` - Optional, enables automatic phone number discovery
+- Without ReadAccounts, manually enter the FROM number in E.164 format
+
+**Settings Keys** (stored in organization_settings table):
+- `ringcentral_client_id`, `ringcentral_client_secret`
+- `ringcentral_jwt` - Active JWT token
+- `ringcentral_jwt_aliases` - JSON array of {alias, jwt} pairs
+- `ringcentral_active_jwt_alias` - Currently selected JWT alias
+- `ringcentral_from_number` - E.164 formatted phone number
+- `ringcentral_server_url` - API endpoint (production or sandbox)
+
 - **Authentication**: Passport.js with passport-local strategy
   - Default admin: username "pmorrison", password "admin123"
 
