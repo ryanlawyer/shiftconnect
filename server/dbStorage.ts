@@ -168,6 +168,23 @@ export class DatabaseStorage implements IStorage {
         await this.createSmsTemplate(template);
       }
     }
+
+    // Backfill SMS codes for existing shifts that don't have them
+    await this.backfillShiftSmsCodes();
+  }
+
+  private async backfillShiftSmsCodes(): Promise<void> {
+    const allShifts = await db.select().from(shifts);
+    const shiftsWithoutCodes = allShifts.filter(s => !s.smsCode);
+    
+    if (shiftsWithoutCodes.length > 0) {
+      console.log(`Backfilling SMS codes for ${shiftsWithoutCodes.length} shifts`);
+      for (const shift of shiftsWithoutCodes) {
+        const newCode = await this.generateUniqueSmsCode();
+        await db.update(shifts).set({ smsCode: newCode }).where(eq(shifts.id, shift.id));
+      }
+      console.log(`SMS code backfill complete`);
+    }
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -379,8 +396,34 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(shifts).where(eq(shifts.areaId, areaId));
   }
 
+  private generateSmsCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding I, O, 0, 1 to avoid confusion
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  private async generateUniqueSmsCode(): Promise<string> {
+    let code = this.generateSmsCode();
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.getShiftBySmsCode(code);
+      if (!existing) {
+        return code;
+      }
+      code = this.generateSmsCode();
+      attempts++;
+    }
+    // Fallback: append timestamp
+    return code + Date.now().toString(36).slice(-2).toUpperCase();
+  }
+
   async createShift(insertShift: InsertShift): Promise<Shift> {
-    const result = await db.insert(shifts).values(insertShift).returning();
+    // Generate SMS code if not provided
+    const smsCode = insertShift.smsCode || await this.generateUniqueSmsCode();
+    const result = await db.insert(shifts).values({ ...insertShift, smsCode }).returning();
     return result[0];
   }
 
