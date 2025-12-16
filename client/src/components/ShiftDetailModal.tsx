@@ -12,12 +12,23 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle, UserCheck } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle, UserCheck, Edit, RefreshCw, Trash2, DollarSign } from "lucide-react";
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import type { ShiftStatus } from "./ShiftCard";
 import type { Area, Employee, Position } from "@shared/schema";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export interface InterestedEmployee {
   id: string;
@@ -42,11 +53,15 @@ export interface ShiftDetailModalProps {
     status: ShiftStatus;
     interestedEmployees: InterestedEmployee[];
     assignedEmployee?: Employee | null;
+    bonusAmount?: number | null;
   };
   isAdmin?: boolean;
   onShowInterest?: (id: string) => void;
   onAssign?: (shiftId: string, employeeId: string, sendNotification: boolean) => void;
   onMessageEmployee?: (employeeId: string) => void;
+  onEdit?: (shiftId: string) => void;
+  onRepost?: (shiftId: string, bonusAmount: number | null) => void;
+  onDelete?: (shiftId: string) => void;
 }
 
 const statusConfig = {
@@ -63,14 +78,39 @@ export function ShiftDetailModal({
   onShowInterest,
   onAssign,
   onMessageEmployee,
+  onEdit,
+  onRepost,
+  onDelete,
 }: ShiftDetailModalProps) {
   const [sendNotification, setSendNotification] = useState(true);
+  const [showRepostDialog, setShowRepostDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [bonusAmount, setBonusAmount] = useState<string>(shift.bonusAmount?.toString() || "");
   const config = statusConfig[shift.status];
   const displayAreaName = shift.area?.name || shift.areaName || "Unassigned";
 
   const { data: positions = [] } = useQuery<Position[]>({
     queryKey: ["/api/positions"],
   });
+  
+  const handleRepost = () => {
+    // Parse bonus amount - ensure valid number or null
+    let bonus: number | null = null;
+    if (bonusAmount && bonusAmount.trim() !== "") {
+      const parsed = parseInt(bonusAmount, 10);
+      if (!isNaN(parsed) && parsed >= 0) {
+        bonus = parsed;
+      }
+    }
+    onRepost?.(shift.id, bonus);
+    setShowRepostDialog(false);
+  };
+  
+  const handleDelete = () => {
+    onDelete?.(shift.id);
+    setShowDeleteDialog(false);
+    onOpenChange(false);
+  };
 
   const sortedInterestedEmployees = useMemo(() => {
     return [...shift.interestedEmployees].sort((a, b) => {
@@ -118,13 +158,22 @@ export function ShiftDetailModal({
                 <p className="text-sm text-muted-foreground font-mono">{shift.startTime} - {shift.endTime}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 col-span-2">
+            <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <div>
                 <p className="text-sm font-medium">Location</p>
                 <p className="text-sm text-muted-foreground">{shift.location}</p>
               </div>
             </div>
+            {shift.bonusAmount && shift.bonusAmount > 0 && (
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <div>
+                  <p className="text-sm font-medium">Bonus</p>
+                  <p className="text-sm text-green-600 dark:text-green-400 font-semibold">${shift.bonusAmount}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {shift.requirements && (
@@ -265,7 +314,39 @@ export function ShiftDetailModal({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-wrap gap-2">
+          {isAdmin && shift.status === "available" && (
+            <div className="flex gap-2 mr-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onEdit?.(shift.id)}
+                data-testid="button-edit-shift"
+              >
+                <Edit className="h-4 w-4 mr-1" />
+                Edit
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowRepostDialog(true)}
+                data-testid="button-repost-shift"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Repost
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeleteDialog(true)}
+                className="text-destructive"
+                data-testid="button-delete-shift"
+              >
+                <Trash2 className="h-4 w-4 mr-1" />
+                Remove
+              </Button>
+            </div>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
@@ -277,6 +358,75 @@ export function ShiftDetailModal({
           )}
         </DialogFooter>
       </DialogContent>
+      
+      {/* Repost Dialog */}
+      <AlertDialog open={showRepostDialog} onOpenChange={setShowRepostDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Repost Shift</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will send SMS notifications to all eligible employees for this shift.
+              You can optionally add a bonus to make the shift more attractive.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Label htmlFor="bonus-amount" className="text-sm font-medium">
+              Bonus Amount (optional)
+            </Label>
+            <div className="relative mt-2">
+              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                id="bonus-amount"
+                type="number"
+                placeholder="0"
+                value={bonusAmount}
+                onChange={(e) => setBonusAmount(e.target.value)}
+                className="pl-9"
+                min="0"
+                data-testid="input-bonus-amount"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Example: Enter 50 for a $50 bonus offer
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRepost} data-testid="button-confirm-repost">
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Repost Shift
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Shift</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove this shift? This action cannot be undone.
+              {shift.interestedEmployees.length > 0 && (
+                <span className="block mt-2 text-yellow-600 dark:text-yellow-400">
+                  Note: {shift.interestedEmployees.length} employee(s) have expressed interest in this shift.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDelete} 
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-delete"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Remove Shift
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

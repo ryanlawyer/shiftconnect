@@ -11,6 +11,7 @@ import {
   insertMessageSchema,
   insertTrainingSchema,
   insertUserSchema,
+  type Employee,
 } from "@shared/schema";
 import { generateDefaultUsername, generateUniqueUsername } from "./utils/usernameGenerator";
 import { scryptSync, randomBytes } from "crypto";
@@ -595,6 +596,84 @@ export async function registerRoutes(
     });
 
     res.status(204).send();
+  });
+
+  // Repost shift - resend notifications to eligible employees
+  app.post("/api/shifts/:id/repost", async (req, res) => {
+    try {
+      const shift = await storage.getShift(req.params.id);
+      if (!shift) return res.status(404).json({ error: "Shift not found" });
+      
+      // Only repost available shifts
+      if (shift.status !== "available") {
+        return res.status(400).json({ error: "Can only repost available shifts" });
+      }
+
+      const { bonusAmount, customMessage } = req.body;
+
+      // Update bonus if provided
+      let updatedShift = shift;
+      if (bonusAmount !== undefined) {
+        updatedShift = await storage.updateShift(shift.id, { bonusAmount: bonusAmount || null }) || shift;
+      }
+
+      // Get area and eligible employees for notification
+      const area = await storage.getArea(updatedShift.areaId);
+      const areaEmployees = await storage.getAreaEmployees(updatedShift.areaId);
+      const position = await storage.getPosition(updatedShift.positionId);
+      
+      // Filter to employees with matching position, active status, and SMS opt-in
+      const eligibleEmployees = areaEmployees.filter((emp: Employee) => 
+        emp.positionId === updatedShift.positionId && 
+        emp.status === "active" && 
+        emp.smsOptIn
+      );
+
+      // Send notifications
+      const protocol = req.secure ? "https" : (req.headers["x-forwarded-proto"] as string) || "http";
+      const forwardedHost = req.headers["x-forwarded-host"] as string;
+      const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
+      const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
+
+      // Pass position for SMS template variables
+      if (area) {
+        notifyNewShift(updatedShift, area, eligibleEmployees, webhookBaseUrl)
+          .then(result => {
+            console.log(`Shift repost notification sent: ${result.sent} successful, ${result.failed} failed`);
+          })
+          .catch(err => {
+            console.error("Error sending shift repost notifications:", err);
+          });
+      } else {
+        console.warn(`Shift ${updatedShift.id} has no valid area, skipping notifications`);
+      }
+
+      await logAuditEvent({
+        action: "shift_created", // Using existing action type for repost
+        actor: req.user as any,
+        targetType: "shift",
+        targetId: updatedShift.id,
+        targetName: `${updatedShift.date} ${updatedShift.startTime}-${updatedShift.endTime} (reposted)`,
+        details: {
+          location: updatedShift.location,
+          areaId: updatedShift.areaId,
+          bonusAmount: updatedShift.bonusAmount,
+          eligibleRecipients: eligibleEmployees.length,
+          customMessage,
+          isRepost: true,
+        },
+        ipAddress: getClientIp(req),
+      });
+
+      res.json({
+        ...updatedShift,
+        notificationRecipients: eligibleEmployees.map((e: Employee) => e.name),
+        notificationCount: eligibleEmployees.length,
+      });
+    } catch (error) {
+      console.error("Error reposting shift:", error);
+      res.status(500).json({ error: "Failed to repost shift" });
+    }
   });
 
   // Assign shift to employee

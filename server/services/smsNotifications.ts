@@ -180,7 +180,7 @@ function formatShiftDetails(shift: Shift, area?: Area | null): string {
  */
 export async function notifyNewShift(
   shift: Shift,
-  area: Area,
+  area: Area | undefined,
   recipients: Employee[],
   webhookBaseUrl?: string
 ): Promise<{ sent: number; failed: number }> {

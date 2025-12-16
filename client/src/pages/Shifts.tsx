@@ -35,6 +35,7 @@ interface ShiftDetailResponse {
   postedByName: string;
   status: "available" | "claimed" | "expired";
   assignedEmployeeId: string | null;
+  bonusAmount: number | null;
   createdAt: string;
   area: Area | null;
   assignedEmployee: Employee | null;
@@ -125,8 +126,67 @@ export default function Shifts() {
     },
   });
 
+  const repostMutation = useMutation({
+    mutationFn: async ({ shiftId, bonusAmount }: { shiftId: string; bonusAmount: number | null }) => {
+      const response = await apiRequest("POST", `/api/shifts/${shiftId}/repost`, {
+        bonusAmount,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts", selectedShiftId] });
+      toast({
+        title: "Shift Reposted",
+        description: `Notifications sent to ${data.notificationCount || 0} eligible employee(s).${data.bonusAmount ? ` Bonus: $${data.bonusAmount}` : ""}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Repost Failed",
+        description: error.message || "Failed to repost shift. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (shiftId: string) => {
+      await apiRequest("DELETE", `/api/shifts/${shiftId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Shift Removed",
+        description: "The shift has been successfully removed.",
+      });
+      setModalOpen(false);
+      setSelectedShiftId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Failed to remove shift. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleAssign = (shiftId: string, employeeId: string, sendNotification: boolean) => {
     assignMutation.mutate({ shiftId, employeeId, sendNotification });
+  };
+  
+  const handleRepost = (shiftId: string, bonusAmount: number | null) => {
+    repostMutation.mutate({ shiftId, bonusAmount });
+  };
+  
+  const handleDelete = (shiftId: string) => {
+    deleteMutation.mutate(shiftId);
+  };
+  
+  const handleEdit = (shiftId: string) => {
+    // Navigate to edit page
+    window.location.href = `/shifts/${shiftId}/edit`;
   };
 
   if (isLoading) {
@@ -253,11 +313,15 @@ export default function Shifts() {
             status: shiftDetail.status,
             interestedEmployees: shiftDetail.interestedEmployees,
             assignedEmployee: shiftDetail.assignedEmployee,
+            bonusAmount: shiftDetail.bonusAmount,
           }}
           isAdmin={true}
           onShowInterest={handleShowInterest}
           onAssign={handleAssign}
           onMessageEmployee={(id) => console.log("Message:", id)}
+          onEdit={handleEdit}
+          onRepost={handleRepost}
+          onDelete={handleDelete}
         />
       )}
     </div>

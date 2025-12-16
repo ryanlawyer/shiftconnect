@@ -491,6 +491,7 @@ export class MemStorage implements IStorage {
             status,
             assignedEmployeeId,
             smsCode: this.generateSeedSmsCode(usedSmsCodes),
+            bonusAmount: null,
             createdAt,
           });
         }
@@ -538,6 +539,7 @@ export class MemStorage implements IStorage {
             status,
             assignedEmployeeId,
             smsCode: this.generateSeedSmsCode(usedSmsCodes),
+            bonusAmount: null,
             createdAt,
           });
         }
@@ -1074,6 +1076,7 @@ export class MemStorage implements IStorage {
       status: insertShift.status ?? "available",
       assignedEmployeeId: insertShift.assignedEmployeeId ?? null,
       smsCode,
+      bonusAmount: insertShift.bonusAmount ?? null,
       createdAt: new Date(),
     };
     this.shifts.set(id, shift);
