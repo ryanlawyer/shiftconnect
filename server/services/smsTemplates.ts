@@ -10,8 +10,10 @@ export const TEMPLATE_VARIABLES = {
     { name: "location", description: "Shift location" },
     { name: "area", description: "Area name (with parentheses if present)" },
     { name: "position", description: "Position title" },
+    { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
+    { name: "appUrl", description: "Application URL for viewing shift details" },
   ],
   shift_confirmation: [
     { name: "date", description: "Shift date" },
@@ -81,7 +83,14 @@ export function renderTemplate(template: string, context: TemplateContext): stri
 
   if (context.position) {
     variables.position = context.position.title;
+    variables.shiftType = context.position.title; // Alias for position
   }
+  
+  // Add appUrl - use environment variable or construct from common patterns
+  const appUrl = process.env.REPLIT_DEV_DOMAIN 
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : process.env.APP_URL || "";
+  variables.appUrl = appUrl;
 
   if (context.employee) {
     variables.employeeName = context.employee.name;
