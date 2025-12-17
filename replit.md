@@ -174,3 +174,28 @@ To receive SMS replies from employees, a webhook subscription must be created:
 - **Forms**: react-hook-form with @hookform/resolvers for Zod validation
 - **Dates**: date-fns for date manipulation
 - **API**: Express with express-session, express-rate-limit
+
+### Security Patterns
+
+#### Permission-Gated Fields
+For fields requiring specific permissions (e.g., `notifyAllAreas` requiring `shifts:all_areas`):
+
+**Server-side enforcement pattern:**
+```typescript
+// Always validate on server - never trust client
+const isValidBooleanTrue = requestData.fieldName === true;
+if (isValidBooleanTrue && !userPermissions.includes("required:permission")) {
+  // Strip unauthorized field
+  requestData.fieldName = false;
+}
+// Reject non-boolean values to prevent truthy string/number coercion
+if (typeof requestData.fieldName !== "boolean") {
+  requestData.fieldName = false;
+}
+```
+
+**Key principles:**
+1. Use strict equality (`=== true`) not truthy checks (`Boolean()`)
+2. Validate typeof to reject strings like "true" or numbers like 1
+3. Frontend permission checks are for UX only; server enforces
+4. Log unauthorized attempts for monitoring
