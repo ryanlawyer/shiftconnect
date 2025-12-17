@@ -129,7 +129,61 @@ export default function Shifts() {
     console.log("Show interest in shift:", id);
   };
 
+  const [notifyingShiftId, setNotifyingShiftId] = useState<string | null>(null);
+
   const { toast } = useToast();
+
+  // Notify mutation for quick notify action
+  const notifyMutation = useMutation({
+    mutationFn: async (shiftId: string) => {
+      const response = await apiRequest("POST", `/api/shifts/${shiftId}/notify`);
+      return response.json();
+    },
+    onSuccess: (data: { notificationCount: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Notifications Sent",
+        description: data.notificationCount > 0
+          ? `Sent notifications to ${data.notificationCount} eligible employees.`
+          : "No eligible employees found to notify.",
+      });
+      setNotifyingShiftId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Notification Failed",
+        description: error.message || "Failed to send notifications. Please try again.",
+        variant: "destructive",
+      });
+      setNotifyingShiftId(null);
+    },
+  });
+
+  const handleNotify = (shiftId: string) => {
+    setNotifyingShiftId(shiftId);
+    notifyMutation.mutate(shiftId);
+  };
+
+  const handleQuickAssign = (shiftId: string) => {
+    setSelectedShiftId(shiftId);
+    setModalOpen(true);
+  };
+
+  const handleClone = (shiftId: string) => {
+    const shift = transformedShifts.find(s => s.id === shiftId);
+    if (!shift) return;
+    
+    const params = new URLSearchParams();
+    if (shift.positionId) params.set("positionId", shift.positionId);
+    if (shift.areaId) params.set("areaId", shift.areaId);
+    if (shift.location) params.set("location", shift.location);
+    if (shift.startTime) params.set("startTime", shift.startTime);
+    if (shift.endTime) params.set("endTime", shift.endTime);
+    if (shift.requirements) params.set("requirements", shift.requirements);
+    if (shift.bonusAmount) params.set("bonusAmount", String(shift.bonusAmount));
+    
+    setLocation(`/shifts/new?${params.toString()}`);
+  };
 
   const assignMutation = useMutation({
     mutationFn: async ({ shiftId, employeeId, sendNotification }: { shiftId: string; employeeId: string; sendNotification: boolean }) => {
@@ -485,6 +539,11 @@ export default function Shifts() {
               {...shift}
               onShowInterest={handleShowInterest}
               onViewDetails={handleViewDetails}
+              onNotify={handleNotify}
+              onClone={handleClone}
+              onQuickAssign={handleQuickAssign}
+              isAdmin={true}
+              isNotifying={notifyingShiftId === shift.id}
               showCheckbox={true}
               isSelected={selectedShiftIds.has(shift.id)}
               onSelectionChange={handleSelectionChange}
