@@ -54,6 +54,7 @@ import { Briefcase, Lock } from "lucide-react";
 const AVAILABLE_PERMISSIONS = [
   { id: "manage_shifts", label: "Manage Shifts", description: "Create, edit, and delete shifts" },
   { id: "view_shifts", label: "View Shifts", description: "View available shifts" },
+  { id: "shifts:all_areas", label: "Notify All Areas", description: "Create shifts that notify employees across all service areas" },
   { id: "manage_employees", label: "Manage Employees", description: "Add, edit, and manage employee records" },
   { id: "view_reports", label: "View Reports", description: "Access reporting and analytics" },
   { id: "export_reports", label: "Export Reports", description: "Export data to CSV/PDF" },
