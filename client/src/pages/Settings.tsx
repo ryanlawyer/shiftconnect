@@ -1026,32 +1026,32 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className={`grid w-full ${user?.role === "admin" ? "grid-cols-6" : "grid-cols-5"}`}>
-          <TabsTrigger value="profile" data-testid="tab-profile">
-            <User className="h-4 w-4 mr-2" />
-            Profile
+        <TabsList className="flex flex-wrap gap-1 h-auto p-1 w-full">
+          <TabsTrigger value="profile" data-testid="tab-profile" className="flex-1 min-w-[80px]">
+            <User className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Profile</span>
           </TabsTrigger>
-          <TabsTrigger value="notifications" data-testid="tab-notifications">
-            <Bell className="h-4 w-4 mr-2" />
-            Notifications
+          <TabsTrigger value="notifications" data-testid="tab-notifications" className="flex-1 min-w-[80px]">
+            <Bell className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Notifications</span>
           </TabsTrigger>
-          <TabsTrigger value="organization" data-testid="tab-organization">
-            <MapPin className="h-4 w-4 mr-2" />
-            Organization
+          <TabsTrigger value="organization" data-testid="tab-organization" className="flex-1 min-w-[80px]">
+            <MapPin className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Organization</span>
           </TabsTrigger>
           {user?.role === "admin" && (
-            <TabsTrigger value="sms" data-testid="tab-sms">
-              <Phone className="h-4 w-4 mr-2" />
-              SMS
+            <TabsTrigger value="sms" data-testid="tab-sms" className="flex-1 min-w-[80px]">
+              <Phone className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">SMS</span>
             </TabsTrigger>
           )}
-          <TabsTrigger value="security" data-testid="tab-security">
-            <Shield className="h-4 w-4 mr-2" />
-            Security
+          <TabsTrigger value="security" data-testid="tab-security" className="flex-1 min-w-[80px]">
+            <Shield className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Security</span>
           </TabsTrigger>
-          <TabsTrigger value="documentation" data-testid="tab-documentation">
-            <BookOpen className="h-4 w-4 mr-2" />
-            Docs
+          <TabsTrigger value="documentation" data-testid="tab-documentation" className="flex-1 min-w-[80px]">
+            <BookOpen className="h-4 w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Docs</span>
           </TabsTrigger>
         </TabsList>
 
@@ -1592,7 +1592,7 @@ export default function Settings() {
                 {/* Provider Selection */}
                 <div className="space-y-4">
                   <h4 className="font-medium">SMS Provider</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <button
                       type="button"
                       onClick={() => {
@@ -2211,7 +2211,7 @@ export default function Settings() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {/* Summary Stats */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="p-4 rounded-lg border bg-muted/50">
                       <div className="flex items-center gap-2 text-muted-foreground mb-1">
                         <Send className="h-4 w-4" />
@@ -2251,7 +2251,7 @@ export default function Settings() {
                   {/* Message Types Breakdown */}
                   <div className="space-y-3">
                     <h4 className="font-medium text-sm">Messages by Type</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                       <div className="p-3 rounded-lg border text-center">
                         <p className="text-lg font-semibold">{smsAnalytics.byType.shiftNotification}</p>
                         <p className="text-xs text-muted-foreground">New Shift</p>

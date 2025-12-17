@@ -318,7 +318,7 @@ export default function AuditLog() {
           </DialogHeader>
           {selectedLog && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground">Actor</p>
                   <p className="font-medium">{selectedLog.actorName}</p>
