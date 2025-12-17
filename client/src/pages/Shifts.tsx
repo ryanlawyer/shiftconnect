@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -13,8 +13,11 @@ import {
 } from "@/components/ui/select";
 import { ShiftCard, type ShiftCardProps } from "@/components/ShiftCard";
 import { ShiftDetailModal } from "@/components/ShiftDetailModal";
-import { Plus, Search, Filter, Loader2, Calendar, RefreshCw } from "lucide-react";
+import { BulkActionToolbar } from "@/components/BulkActionToolbar";
+import { WeekGridView } from "@/components/WeekGridView";
+import { Plus, Search, Filter, Loader2, Calendar, RefreshCw, List, CalendarDays } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { startOfWeek, addWeeks, format, isSameDay } from "date-fns";
 import { transformShiftsToCards, type ShiftWithDetails } from "@/lib/shiftUtils";
 import type { Area, Employee } from "@shared/schema";
 import type { InterestedEmployee } from "@/components/ShiftDetailModal";
@@ -49,6 +52,10 @@ export default function Shifts() {
   const [statusFilter, setStatusFilter] = useState("All Status");
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [selectedShiftIds, setSelectedShiftIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   // Fetch shifts and areas data
   const { data: shifts = [], isLoading: loadingShifts } = useQuery<ShiftWithDetails[]>({
@@ -72,7 +79,7 @@ export default function Shifts() {
     return transformShiftsToCards(shifts);
   }, [shifts]);
 
-  // Filter shifts based on search, area, and status
+  // Filter shifts based on search, area, status, and date
   const filteredShifts = useMemo(() => {
     return transformedShifts.filter((shift) => {
       const areaName = shift.areaName || "";
@@ -80,9 +87,38 @@ export default function Shifts() {
                             areaName.toLowerCase().includes(search.toLowerCase());
       const matchesArea = areaFilter === "all" || shift.area?.id === areaFilter;
       const matchesStatus = statusFilter === "All Status" || shift.status === statusFilter.toLowerCase();
-      return matchesSearch && matchesArea && matchesStatus;
+      
+      // Date filter when a day is selected in calendar view
+      let matchesDate = true;
+      if (selectedDate) {
+        const shiftDateStr = shift.date;
+        const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
+        if (shiftDateStr.includes("-")) {
+          matchesDate = shiftDateStr === selectedDateStr;
+        } else {
+          try {
+            matchesDate = isSameDay(new Date(shiftDateStr), selectedDate);
+          } catch {
+            matchesDate = false;
+          }
+        }
+      }
+      
+      return matchesSearch && matchesArea && matchesStatus && matchesDate;
     });
-  }, [transformedShifts, search, areaFilter, statusFilter]);
+  }, [transformedShifts, search, areaFilter, statusFilter, selectedDate]);
+
+  const handleWeekChange = (direction: "prev" | "next") => {
+    setWeekStart(prev => addWeeks(prev, direction === "next" ? 1 : -1));
+  };
+
+  const handleDateSelect = (date: Date) => {
+    if (selectedDate && isSameDay(selectedDate, date)) {
+      setSelectedDate(null); // Toggle off if clicking the same date
+    } else {
+      setSelectedDate(date);
+    }
+  };
 
   const handleViewDetails = (id: string) => {
     setSelectedShiftId(id);
@@ -216,9 +252,108 @@ export default function Shifts() {
   };
   
   const handleEdit = (shiftId: string) => {
-    // Navigate to edit page using wouter
     setLocation(`/shifts/${shiftId}/edit`);
   };
+
+  const handleSelectionChange = (id: string, selected: boolean) => {
+    setSelectedShiftIds(prev => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    setSelectedShiftIds(new Set(filteredShifts.map(s => s.id)));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedShiftIds(new Set());
+  };
+
+  const bulkCancelMutation = useMutation({
+    mutationFn: async (shiftIds: string[]) => {
+      const response = await apiRequest("POST", "/api/shifts/bulk/cancel", { shiftIds });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Shifts Cancelled",
+        description: `${data.successCount} shift(s) cancelled successfully.${data.failedCount > 0 ? ` ${data.failedCount} failed.` : ""}`,
+      });
+      setSelectedShiftIds(new Set());
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Bulk Cancel Failed",
+        description: error.message || "Failed to cancel shifts.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const bulkRepostMutation = useMutation({
+    mutationFn: async (shiftIds: string[]) => {
+      const response = await apiRequest("POST", "/api/shifts/bulk/repost", { shiftIds });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Shifts Reposted",
+        description: `${data.successCount} shift(s) reposted. ${data.totalNotifications} notification(s) sent.`,
+      });
+      setSelectedShiftIds(new Set());
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Bulk Repost Failed",
+        description: error.message || "Failed to repost shifts.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const bulkNotifyMutation = useMutation({
+    mutationFn: async (shiftIds: string[]) => {
+      const response = await apiRequest("POST", "/api/shifts/bulk/notify", { shiftIds });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Notifications Sent",
+        description: `Sent notifications for ${data.successCount} shift(s). ${data.totalNotifications} employee(s) notified.`,
+      });
+      setSelectedShiftIds(new Set());
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Bulk Notify Failed",
+        description: error.message || "Failed to send notifications.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleBulkCancel = () => {
+    bulkCancelMutation.mutate(Array.from(selectedShiftIds));
+  };
+
+  const handleBulkRepost = () => {
+    bulkRepostMutation.mutate(Array.from(selectedShiftIds));
+  };
+
+  const handleBulkNotify = () => {
+    bulkNotifyMutation.mutate(Array.from(selectedShiftIds));
+  };
+
+  const isBulkLoading = bulkCancelMutation.isPending || bulkRepostMutation.isPending || bulkNotifyMutation.isPending;
 
   if (isLoading) {
     return (
@@ -235,12 +370,37 @@ export default function Shifts() {
           <h1 className="text-3xl font-semibold">Open Shifts</h1>
           <p className="text-muted-foreground">Browse and claim available shifts</p>
         </div>
-        <Link href="/shifts/new">
-          <Button data-testid="button-new-shift">
-            <Plus className="h-4 w-4 mr-2" />
-            Post New Shift
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center border rounded-md">
+            <Button
+              variant={viewMode === "list" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setViewMode("list");
+                setSelectedDate(null); // Clear date filter when switching to list view
+              }}
+              className="rounded-r-none"
+              data-testid="button-view-list"
+            >
+              <List className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "calendar" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("calendar")}
+              className="rounded-l-none"
+              data-testid="button-view-calendar"
+            >
+              <CalendarDays className="h-4 w-4" />
+            </Button>
+          </div>
+          <Link href="/shifts/new">
+            <Button data-testid="button-new-shift">
+              <Plus className="h-4 w-4 mr-2" />
+              Post New Shift
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
@@ -278,6 +438,45 @@ export default function Shifts() {
         </Select>
       </div>
 
+      {selectedShiftIds.size > 0 && (
+        <BulkActionToolbar
+          selectedCount={selectedShiftIds.size}
+          totalCount={filteredShifts.length}
+          onCancelSelected={handleBulkCancel}
+          onRepostSelected={handleBulkRepost}
+          onNotifySelected={handleBulkNotify}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          isLoading={isBulkLoading}
+        />
+      )}
+
+      {viewMode === "calendar" && (
+        <WeekGridView
+          shifts={transformedShifts}
+          selectedDate={selectedDate}
+          onDateSelect={handleDateSelect}
+          weekStart={weekStart}
+          onWeekChange={handleWeekChange}
+        />
+      )}
+
+      {selectedDate && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            Showing shifts for {format(selectedDate, "EEEE, MMMM d, yyyy")}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedDate(null)}
+            data-testid="button-clear-date-filter"
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
       {filteredShifts.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredShifts.map((shift) => (
@@ -286,6 +485,9 @@ export default function Shifts() {
               {...shift}
               onShowInterest={handleShowInterest}
               onViewDetails={handleViewDetails}
+              showCheckbox={true}
+              isSelected={selectedShiftIds.has(shift.id)}
+              onSelectionChange={handleSelectionChange}
             />
           ))}
         </div>

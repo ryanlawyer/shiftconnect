@@ -12,6 +12,7 @@ import {
   type AuditLog, type InsertAuditLog,
   type OrganizationSetting,
   type SmsTemplate, type InsertSmsTemplate,
+  type ShiftTemplate, type InsertShiftTemplate,
 } from "@shared/schema";
 import session from "express-session";
 import createMemoryStore from "memorystore";
@@ -115,6 +116,13 @@ export interface IStorage {
   createSmsTemplate(template: InsertSmsTemplate): Promise<SmsTemplate>;
   updateSmsTemplate(id: string, template: Partial<InsertSmsTemplate>): Promise<SmsTemplate | undefined>;
   deleteSmsTemplate(id: string): Promise<boolean>;
+
+  // Shift Templates
+  getShiftTemplates(): Promise<ShiftTemplate[]>;
+  getShiftTemplate(id: string): Promise<ShiftTemplate | undefined>;
+  createShiftTemplate(template: InsertShiftTemplate): Promise<ShiftTemplate>;
+  updateShiftTemplate(id: string, template: Partial<InsertShiftTemplate>): Promise<ShiftTemplate | undefined>;
+  deleteShiftTemplate(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -131,6 +139,7 @@ export class MemStorage implements IStorage {
   private auditLogs: Map<string, AuditLog>;
   private organizationSettings: Map<string, OrganizationSetting>;
   private smsTemplates: Map<string, SmsTemplate>;
+  private shiftTemplates: Map<string, ShiftTemplate>;
   sessionStore: session.Store;
 
   constructor() {
@@ -147,6 +156,7 @@ export class MemStorage implements IStorage {
     this.auditLogs = new Map();
     this.organizationSettings = new Map();
     this.smsTemplates = new Map();
+    this.shiftTemplates = new Map();
     const MemoryStore = createMemoryStore(session);
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000,
@@ -492,6 +502,9 @@ export class MemStorage implements IStorage {
             assignedEmployeeId,
             smsCode: this.generateSeedSmsCode(usedSmsCodes),
             bonusAmount: null,
+            notifyAllAreas: false,
+            lastNotifiedAt: null,
+            notificationCount: 0,
             createdAt,
           });
         }
@@ -540,6 +553,9 @@ export class MemStorage implements IStorage {
             assignedEmployeeId,
             smsCode: this.generateSeedSmsCode(usedSmsCodes),
             bonusAmount: null,
+            notifyAllAreas: false,
+            lastNotifiedAt: null,
+            notificationCount: 0,
             createdAt,
           });
         }
@@ -1077,6 +1093,9 @@ export class MemStorage implements IStorage {
       assignedEmployeeId: insertShift.assignedEmployeeId ?? null,
       smsCode,
       bonusAmount: insertShift.bonusAmount ?? null,
+      notifyAllAreas: insertShift.notifyAllAreas ?? false,
+      lastNotifiedAt: insertShift.lastNotifiedAt ?? null,
+      notificationCount: insertShift.notificationCount ?? 0,
       createdAt: new Date(),
     };
     this.shifts.set(id, shift);
@@ -1392,6 +1411,56 @@ export class MemStorage implements IStorage {
     const template = this.smsTemplates.get(id);
     if (!template || template.isSystem) return false;
     return this.smsTemplates.delete(id);
+  }
+
+  // Shift Templates
+  async getShiftTemplates(): Promise<ShiftTemplate[]> {
+    return Array.from(this.shiftTemplates.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }
+
+  async getShiftTemplate(id: string): Promise<ShiftTemplate | undefined> {
+    return this.shiftTemplates.get(id);
+  }
+
+  async createShiftTemplate(template: InsertShiftTemplate): Promise<ShiftTemplate> {
+    const id = randomUUID();
+    const now = new Date();
+    const newTemplate: ShiftTemplate = {
+      id,
+      name: template.name,
+      positionId: template.positionId,
+      areaId: template.areaId,
+      location: template.location,
+      startTime: template.startTime,
+      endTime: template.endTime,
+      requirements: template.requirements ?? null,
+      bonusAmount: template.bonusAmount ?? null,
+      notifyAllAreas: template.notifyAllAreas ?? false,
+      createdById: template.createdById ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.shiftTemplates.set(id, newTemplate);
+    return newTemplate;
+  }
+
+  async updateShiftTemplate(id: string, template: Partial<InsertShiftTemplate>): Promise<ShiftTemplate | undefined> {
+    const existing = this.shiftTemplates.get(id);
+    if (!existing) return undefined;
+
+    const updated: ShiftTemplate = {
+      ...existing,
+      ...template,
+      updatedAt: new Date(),
+    };
+    this.shiftTemplates.set(id, updated);
+    return updated;
+  }
+
+  async deleteShiftTemplate(id: string): Promise<boolean> {
+    return this.shiftTemplates.delete(id);
   }
 }
 

@@ -23,7 +23,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key, RefreshCw, Download, BookOpen } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Area, Position, Role, OrganizationSetting, SmsTemplate } from "@shared/schema";
+import type { Area, Position, Role, OrganizationSetting, SmsTemplate, ShiftTemplate } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -457,6 +457,142 @@ export default function Settings() {
       toast({ title: "Area Deleted", description: "The area has been removed." });
     },
   });
+
+  // Shift Template management state
+  const [shiftTemplateDialogOpen, setShiftTemplateDialogOpen] = useState(false);
+  const [editingShiftTemplate, setEditingShiftTemplate] = useState<ShiftTemplate | null>(null);
+  const [shiftTemplateForm, setShiftTemplateForm] = useState<{
+    name: string;
+    positionId: string;
+    areaId: string;
+    location: string;
+    startTime: string;
+    endTime: string;
+    requirements: string;
+    bonusAmount: string;
+    notifyAllAreas: boolean;
+  }>({
+    name: "",
+    positionId: "",
+    areaId: "",
+    location: "",
+    startTime: "",
+    endTime: "",
+    requirements: "",
+    bonusAmount: "",
+    notifyAllAreas: false,
+  });
+  const [shiftTemplateToDelete, setShiftTemplateToDelete] = useState<ShiftTemplate | null>(null);
+
+  const { data: shiftTemplates = [], isLoading: shiftTemplatesLoading } = useQuery<ShiftTemplate[]>({
+    queryKey: ["/api/shift-templates"],
+  });
+
+  const createShiftTemplateMutation = useMutation({
+    mutationFn: (data: {
+      name: string;
+      positionId: string;
+      areaId: string;
+      location: string;
+      startTime: string;
+      endTime: string;
+      requirements?: string;
+      bonusAmount?: number;
+      notifyAllAreas: boolean;
+    }) => apiRequest("POST", "/api/shift-templates", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shift-templates"] });
+      setShiftTemplateDialogOpen(false);
+      resetShiftTemplateForm();
+      toast({ title: "Template Created", description: "The new shift template has been added." });
+    },
+    onError: (error) => {
+      toast({ title: "Failed to create template", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateShiftTemplateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<ShiftTemplate> }) =>
+      apiRequest("PATCH", `/api/shift-templates/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shift-templates"] });
+      setShiftTemplateDialogOpen(false);
+      setEditingShiftTemplate(null);
+      resetShiftTemplateForm();
+      toast({ title: "Template Updated", description: "The shift template has been updated." });
+    },
+    onError: (error) => {
+      toast({ title: "Failed to update template", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteShiftTemplateMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/shift-templates/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shift-templates"] });
+      setShiftTemplateToDelete(null);
+      toast({ title: "Template Deleted", description: "The shift template has been removed." });
+    },
+    onError: (error) => {
+      toast({ title: "Failed to delete template", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resetShiftTemplateForm = () => {
+    setShiftTemplateForm({
+      name: "",
+      positionId: "",
+      areaId: "",
+      location: "",
+      startTime: "",
+      endTime: "",
+      requirements: "",
+      bonusAmount: "",
+      notifyAllAreas: false,
+    });
+  };
+
+  const openNewShiftTemplate = () => {
+    setEditingShiftTemplate(null);
+    resetShiftTemplateForm();
+    setShiftTemplateDialogOpen(true);
+  };
+
+  const openEditShiftTemplate = (template: ShiftTemplate) => {
+    setEditingShiftTemplate(template);
+    setShiftTemplateForm({
+      name: template.name,
+      positionId: template.positionId,
+      areaId: template.areaId,
+      location: template.location,
+      startTime: template.startTime,
+      endTime: template.endTime,
+      requirements: template.requirements || "",
+      bonusAmount: template.bonusAmount ? String(template.bonusAmount) : "",
+      notifyAllAreas: template.notifyAllAreas || false,
+    });
+    setShiftTemplateDialogOpen(true);
+  };
+
+  const handleShiftTemplateSubmit = () => {
+    const data = {
+      name: shiftTemplateForm.name,
+      positionId: shiftTemplateForm.positionId,
+      areaId: shiftTemplateForm.areaId,
+      location: shiftTemplateForm.location,
+      startTime: shiftTemplateForm.startTime,
+      endTime: shiftTemplateForm.endTime,
+      requirements: shiftTemplateForm.requirements || undefined,
+      bonusAmount: shiftTemplateForm.bonusAmount ? parseInt(shiftTemplateForm.bonusAmount, 10) : undefined,
+      notifyAllAreas: shiftTemplateForm.notifyAllAreas,
+    };
+
+    if (editingShiftTemplate) {
+      updateShiftTemplateMutation.mutate({ id: editingShiftTemplate.id, data });
+    } else {
+      createShiftTemplateMutation.mutate(data);
+    }
+  };
 
   // Organization Settings
   const [urgentThreshold, setUrgentThreshold] = useState("48");
@@ -1379,6 +1515,85 @@ export default function Settings() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  <CardTitle>Shift Templates</CardTitle>
+                </div>
+                <Button size="sm" onClick={openNewShiftTemplate} data-testid="button-add-shift-template">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Template
+                </Button>
+              </div>
+              <CardDescription>Create reusable templates for common shift configurations</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {shiftTemplatesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : shiftTemplates.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No shift templates defined yet. Add your first template to get started.</p>
+              ) : (
+                <div className="space-y-2">
+                  {shiftTemplates.map((template) => {
+                    const position = positions.find(p => p.id === template.positionId);
+                    const area = areas.find(a => a.id === template.areaId);
+                    return (
+                      <div
+                        key={template.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-muted/50"
+                        data-testid={`shift-template-item-${template.id}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium">{template.name}</p>
+                            {template.bonusAmount && template.bonusAmount > 0 && (
+                              <Badge variant="secondary" className="text-xs">${template.bonusAmount} bonus</Badge>
+                            )}
+                            {template.notifyAllAreas && (
+                              <Badge variant="outline" className="text-xs">All Areas</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground flex-wrap">
+                            <span>{position?.title || "Unknown Position"}</span>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span>{area?.name || "Unknown Area"}</span>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span>{template.location}</span>
+                            <span className="text-muted-foreground/50">|</span>
+                            <span>{template.startTime} - {template.endTime}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => openEditShiftTemplate(template)}
+                            data-testid={`button-edit-shift-template-${template.id}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setShiftTemplateToDelete(template)}
+                            disabled={deleteShiftTemplateMutation.isPending}
+                            data-testid={`button-delete-shift-template-${template.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -2734,6 +2949,225 @@ export default function Settings() {
             >
               {deleteRoleMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Delete Role
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Shift Template Dialog */}
+      <Dialog open={shiftTemplateDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setShiftTemplateDialogOpen(false);
+          setEditingShiftTemplate(null);
+          resetShiftTemplateForm();
+        }
+      }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-shift-template">
+          <DialogHeader>
+            <DialogTitle>
+              {editingShiftTemplate ? "Edit Shift Template" : "Create Shift Template"}
+            </DialogTitle>
+            <DialogDescription>
+              {editingShiftTemplate
+                ? "Update this shift template configuration."
+                : "Create a reusable template for common shift configurations."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="shift-template-name">Template Name *</Label>
+              <Input
+                id="shift-template-name"
+                value={shiftTemplateForm.name}
+                onChange={(e) => setShiftTemplateForm({ ...shiftTemplateForm, name: e.target.value })}
+                placeholder="e.g., Morning ICU Shift"
+                data-testid="input-shift-template-name"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="shift-template-position">Position *</Label>
+                <Select
+                  value={shiftTemplateForm.positionId}
+                  onValueChange={(value) => setShiftTemplateForm({ ...shiftTemplateForm, positionId: value })}
+                >
+                  <SelectTrigger data-testid="select-shift-template-position">
+                    <SelectValue placeholder="Select position" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {positions.map((pos) => (
+                      <SelectItem key={pos.id} value={pos.id}>
+                        {pos.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="shift-template-area">Area *</Label>
+                <Select
+                  value={shiftTemplateForm.areaId}
+                  onValueChange={(value) => setShiftTemplateForm({ ...shiftTemplateForm, areaId: value })}
+                >
+                  <SelectTrigger data-testid="select-shift-template-area">
+                    <SelectValue placeholder="Select area" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {areas.map((area) => (
+                      <SelectItem key={area.id} value={area.id}>
+                        {area.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="shift-template-location">Location *</Label>
+              <Select
+                value={shiftTemplateForm.location}
+                onValueChange={(value) => setShiftTemplateForm({ ...shiftTemplateForm, location: value })}
+              >
+                <SelectTrigger data-testid="select-shift-template-location">
+                  <SelectValue placeholder="Select location" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc} value={loc}>
+                      {loc}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="shift-template-start">Start Time *</Label>
+                <Input
+                  id="shift-template-start"
+                  type="time"
+                  value={shiftTemplateForm.startTime}
+                  onChange={(e) => setShiftTemplateForm({ ...shiftTemplateForm, startTime: e.target.value })}
+                  data-testid="input-shift-template-start"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="shift-template-end">End Time *</Label>
+                <Input
+                  id="shift-template-end"
+                  type="time"
+                  value={shiftTemplateForm.endTime}
+                  onChange={(e) => setShiftTemplateForm({ ...shiftTemplateForm, endTime: e.target.value })}
+                  data-testid="input-shift-template-end"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="shift-template-requirements">Requirements (Optional)</Label>
+              <Textarea
+                id="shift-template-requirements"
+                value={shiftTemplateForm.requirements}
+                onChange={(e) => setShiftTemplateForm({ ...shiftTemplateForm, requirements: e.target.value })}
+                placeholder="Any special requirements or notes for this shift..."
+                data-testid="textarea-shift-template-requirements"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="shift-template-bonus">Bonus Amount (Optional)</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">$</span>
+                <Input
+                  id="shift-template-bonus"
+                  type="number"
+                  min="0"
+                  value={shiftTemplateForm.bonusAmount}
+                  onChange={(e) => setShiftTemplateForm({ ...shiftTemplateForm, bonusAmount: e.target.value })}
+                  placeholder="0"
+                  className="w-24"
+                  data-testid="input-shift-template-bonus"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="space-y-0.5">
+                <Label>Notify All Areas</Label>
+                <p className="text-sm text-muted-foreground">
+                  Send notifications to employees in all areas
+                </p>
+              </div>
+              <Switch
+                checked={shiftTemplateForm.notifyAllAreas}
+                onCheckedChange={(checked) => setShiftTemplateForm({ ...shiftTemplateForm, notifyAllAreas: checked })}
+                data-testid="switch-shift-template-notify-all"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShiftTemplateDialogOpen(false);
+                setEditingShiftTemplate(null);
+                resetShiftTemplateForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleShiftTemplateSubmit}
+              disabled={
+                !shiftTemplateForm.name ||
+                !shiftTemplateForm.positionId ||
+                !shiftTemplateForm.areaId ||
+                !shiftTemplateForm.location ||
+                !shiftTemplateForm.startTime ||
+                !shiftTemplateForm.endTime ||
+                createShiftTemplateMutation.isPending ||
+                updateShiftTemplateMutation.isPending
+              }
+              data-testid="button-save-shift-template"
+            >
+              {(createShiftTemplateMutation.isPending || updateShiftTemplateMutation.isPending) && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              {editingShiftTemplate ? "Save Changes" : "Create Template"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Shift Template Confirmation */}
+      <AlertDialog open={!!shiftTemplateToDelete} onOpenChange={(open) => !open && setShiftTemplateToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{shiftTemplateToDelete?.name}" template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the shift template.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setShiftTemplateToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteShiftTemplateMutation.isPending}
+              onClick={() => {
+                if (shiftTemplateToDelete) {
+                  deleteShiftTemplateMutation.mutate(shiftTemplateToDelete.id);
+                }
+              }}
+            >
+              {deleteShiftTemplateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Delete Template
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

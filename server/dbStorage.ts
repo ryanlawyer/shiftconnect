@@ -14,9 +14,10 @@ import {
   type AuditLog, type InsertAuditLog,
   type OrganizationSetting,
   type SmsTemplate, type InsertSmsTemplate,
+  type ShiftTemplate, type InsertShiftTemplate,
   users, roles, areas, positions, employees, employeeAreas,
   shifts, shiftInterests, messages, trainings, auditLogs,
-  organizationSettings, smsTemplates,
+  organizationSettings, smsTemplates, shiftTemplates,
 } from "@shared/schema";
 import { ROLE_PERMISSIONS } from "@shared/permissions";
 import session from "express-session";
@@ -667,6 +668,32 @@ export class DatabaseStorage implements IStorage {
     const template = await this.getSmsTemplate(id);
     if (template?.isSystem) return false;
     const result = await db.delete(smsTemplates).where(eq(smsTemplates.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Shift Templates
+  async getShiftTemplates(): Promise<ShiftTemplate[]> {
+    return db.select().from(shiftTemplates);
+  }
+
+  async getShiftTemplate(id: string): Promise<ShiftTemplate | undefined> {
+    const result = await db.select().from(shiftTemplates).where(eq(shiftTemplates.id, id));
+    return result[0];
+  }
+
+  async createShiftTemplate(template: InsertShiftTemplate): Promise<ShiftTemplate> {
+    const result = await db.insert(shiftTemplates).values(template).returning();
+    return result[0];
+  }
+
+  async updateShiftTemplate(id: string, updates: Partial<InsertShiftTemplate>): Promise<ShiftTemplate | undefined> {
+    const result = await db.update(shiftTemplates).set({ ...updates, updatedAt: new Date() })
+      .where(eq(shiftTemplates.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteShiftTemplate(id: string): Promise<boolean> {
+    const result = await db.delete(shiftTemplates).where(eq(shiftTemplates.id, id));
     return (result.rowCount ?? 0) > 0;
   }
 }

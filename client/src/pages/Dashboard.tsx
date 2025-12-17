@@ -7,7 +7,7 @@ import { DashboardStats, type StatCardProps } from "@/components/DashboardStats"
 import { ShiftCard } from "@/components/ShiftCard";
 import { ShiftDetailModal, type InterestedEmployee } from "@/components/ShiftDetailModal";
 import { Calendar, Users, MessageSquare, Clock, Plus, Loader2, AlertTriangle } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { calculateDashboardStats } from "@/lib/dashboardStats";
 import { transformShiftsToCards, type ShiftWithDetails } from "@/lib/shiftUtils";
 import type { Employee, Area, OrganizationSetting } from "@shared/schema";
@@ -36,6 +36,8 @@ interface ShiftDetailResponse {
 export default function Dashboard() {
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [notifyingShiftId, setNotifyingShiftId] = useState<string | null>(null);
+  const [, setLocation] = useLocation();
 
   // Fetch organization settings for urgency threshold
   const { data: settings = [] } = useQuery<OrganizationSetting[]>({
@@ -96,6 +98,64 @@ export default function Dashboard() {
 
   const handleAssign = (shiftId: string, employeeId: string, sendNotification: boolean) => {
     assignMutation.mutate({ shiftId, employeeId, sendNotification });
+  };
+
+  // Notify mutation for quick notify action
+  const notifyMutation = useMutation({
+    mutationFn: async (shiftId: string) => {
+      const response = await apiRequest("POST", `/api/shifts/${shiftId}/notify`);
+      return response.json();
+    },
+    onSuccess: (data: { notificationCount: number }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({
+        title: "Notifications Sent",
+        description: data.notificationCount > 0
+          ? `Sent notifications to ${data.notificationCount} eligible employees.`
+          : "No eligible employees found to notify.",
+      });
+      setNotifyingShiftId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Notification Failed",
+        description: error.message || "Failed to send notifications. Please try again.",
+        variant: "destructive",
+      });
+      setNotifyingShiftId(null);
+    },
+  });
+
+  const handleNotify = (shiftId: string) => {
+    setNotifyingShiftId(shiftId);
+    notifyMutation.mutate(shiftId);
+  };
+
+  const handleQuickAssign = (shiftId: string) => {
+    setSelectedShiftId(shiftId);
+    setModalOpen(true);
+  };
+
+  const handleClone = (shiftId: string) => {
+    const shift = shifts.find(s => s.id === shiftId);
+    if (!shift) return;
+    
+    const params = new URLSearchParams({
+      positionId: shift.positionId,
+      areaId: shift.areaId,
+      location: shift.location,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+    });
+    
+    if (shift.requirements) {
+      params.set("requirements", shift.requirements);
+    }
+    if (shift.bonusAmount) {
+      params.set("bonusAmount", shift.bonusAmount.toString());
+    }
+    
+    setLocation(`/shifts/new?${params.toString()}`);
   };
 
   // Calculate dashboard stats from real data
@@ -244,6 +304,10 @@ export default function Dashboard() {
                 {...shift}
                 isAdmin={true}
                 onViewDetails={handleViewDetails}
+                onNotify={handleNotify}
+                onQuickAssign={handleQuickAssign}
+                onClone={handleClone}
+                isNotifying={notifyingShiftId === shift.id}
               />
             ))}
           </div>

@@ -1,7 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,10 +25,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Send, Loader2 } from "lucide-react";
-import type { Area, Position, OrganizationSetting, Shift } from "@shared/schema";
-import { useEffect } from "react";
+import { Calendar, Send, Loader2, FileText, Save } from "lucide-react";
+import type { Area, Position, OrganizationSetting, Shift, ShiftTemplate } from "@shared/schema";
+import { useEffect, useState } from "react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 const formSchema = z.object({
   positionId: z.string().min(1, "Position is required"),
@@ -40,6 +51,7 @@ const formSchema = z.object({
   requirements: z.string().optional(),
   sendNotification: z.boolean().default(true),
   notifyAllAreas: z.boolean().default(false),
+  saveAsTemplate: z.boolean().default(false),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -49,11 +61,18 @@ export interface CreateShiftFormProps {
   onCancel?: () => void;
   initialData?: Shift;
   isEditing?: boolean;
+  isCloning?: boolean;
 }
 
-export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: CreateShiftFormProps) {
+export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing, isCloning }: CreateShiftFormProps) {
   const { hasPermission } = usePermissions();
   const canNotifyAllAreas = hasPermission(PERMISSIONS.SHIFTS_ALL_AREAS);
+  const { toast } = useToast();
+  
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [pendingFormData, setPendingFormData] = useState<FormValues | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   
   const { data: areas = [], isLoading: areasLoading } = useQuery<Area[]>({
     queryKey: ["/api/areas"],
@@ -65,6 +84,37 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
 
   const { data: settings = [] } = useQuery<OrganizationSetting[]>({
     queryKey: ["/api/settings"],
+  });
+
+  const { data: templates = [], isLoading: templatesLoading } = useQuery<ShiftTemplate[]>({
+    queryKey: ["/api/shift-templates"],
+  });
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: async (data: { name: string; positionId: string; areaId: string; location: string; startTime: string; endTime: string; requirements?: string; notifyAllAreas?: boolean }) => {
+      const response = await apiRequest("POST", "/api/shift-templates", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shift-templates"] });
+      toast({
+        title: "Template Saved",
+        description: `Template "${templateName}" has been saved successfully.`,
+      });
+      setTemplateDialogOpen(false);
+      setTemplateName("");
+      if (pendingFormData) {
+        onSubmit?.(pendingFormData);
+        setPendingFormData(null);
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Save Template",
+        description: error.message || "An error occurred while saving the template.",
+        variant: "destructive",
+      });
+    },
   });
 
   const locations = settings.find(s => s.key === "shift_locations")?.value?.split(",").map(l => l.trim()).filter(Boolean) || [];
@@ -81,6 +131,7 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
       requirements: initialData?.requirements || "",
       sendNotification: !isEditing,
       notifyAllAreas: initialData?.notifyAllAreas || false,
+      saveAsTemplate: false,
     },
   });
 
@@ -96,25 +147,114 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
         requirements: initialData.requirements || "",
         sendNotification: false,
         notifyAllAreas: initialData.notifyAllAreas || false,
+        saveAsTemplate: false,
       });
     }
   }, [initialData, form]);
 
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    if (templateId === "") return;
+    
+    const template = templates.find(t => t.id === templateId);
+    if (template) {
+      form.setValue("positionId", template.positionId);
+      form.setValue("areaId", template.areaId);
+      form.setValue("location", template.location);
+      form.setValue("startTime", template.startTime);
+      form.setValue("endTime", template.endTime);
+      form.setValue("requirements", template.requirements || "");
+      form.setValue("notifyAllAreas", template.notifyAllAreas || false);
+      toast({
+        title: "Template Loaded",
+        description: `Loaded template "${template.name}". Don't forget to set the date.`,
+      });
+    }
+  };
+
   const handleSubmit = (data: FormValues) => {
-    onSubmit?.(data);
+    if (data.saveAsTemplate && !isEditing) {
+      setPendingFormData(data);
+      setTemplateDialogOpen(true);
+    } else {
+      onSubmit?.(data);
+    }
+  };
+
+  const handleSaveTemplate = () => {
+    if (!templateName.trim()) {
+      toast({
+        title: "Template Name Required",
+        description: "Please enter a name for the template.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!pendingFormData) return;
+
+    saveTemplateMutation.mutate({
+      name: templateName.trim(),
+      positionId: pendingFormData.positionId,
+      areaId: pendingFormData.areaId,
+      location: pendingFormData.location,
+      startTime: pendingFormData.startTime,
+      endTime: pendingFormData.endTime,
+      requirements: pendingFormData.requirements,
+      notifyAllAreas: pendingFormData.notifyAllAreas,
+    });
+  };
+
+  const handleSkipTemplate = () => {
+    setTemplateDialogOpen(false);
+    setTemplateName("");
+    if (pendingFormData) {
+      onSubmit?.(pendingFormData);
+      setPendingFormData(null);
+    }
   };
 
   return (
+    <>
     <Card data-testid="form-create-shift">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Calendar className="h-5 w-5" />
-          {isEditing ? "Edit Shift" : "Post New Shift"}
+          {isEditing ? "Edit Shift" : isCloning ? "Clone Shift" : "Post New Shift"}
         </CardTitle>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(handleSubmit)}>
           <CardContent className="space-y-6">
+            {!isEditing && templates.length > 0 && (
+              <div className="flex items-center gap-3 rounded-lg border border-dashed p-4 bg-muted/30">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                <div className="flex-1">
+                  <Label htmlFor="template-select" className="text-sm font-medium">
+                    Load from Template
+                  </Label>
+                  <Select value={selectedTemplateId} onValueChange={handleTemplateSelect} disabled={templatesLoading}>
+                    <SelectTrigger id="template-select" className="mt-1" data-testid="select-template">
+                      {templatesLoading ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading...
+                        </div>
+                      ) : (
+                        <SelectValue placeholder="Select a template to pre-fill form" />
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((template) => (
+                        <SelectItem key={template.id} value={template.id} data-testid={`template-option-${template.id}`}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -321,6 +461,32 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
                 </FormItem>
               )}
             />
+
+            {!isEditing && (
+              <FormField
+                control={form.control}
+                name="saveAsTemplate"
+                render={({ field }) => (
+                  <FormItem className="flex items-start gap-3 rounded-lg border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="checkbox-save-as-template"
+                      />
+                    </FormControl>
+                    <div className="space-y-1">
+                      <FormLabel className="text-base font-medium cursor-pointer">
+                        Save as Template
+                      </FormLabel>
+                      <FormDescription>
+                        Save this shift configuration as a reusable template for future shifts
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+            )}
           </CardContent>
           <CardFooter className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onCancel} data-testid="button-cancel-shift">
@@ -334,5 +500,45 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
         </form>
       </Form>
     </Card>
+
+    <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Save className="h-5 w-5" />
+            Save as Template
+          </DialogTitle>
+          <DialogDescription>
+            Give your template a name so you can easily find and reuse it later.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <Label htmlFor="template-name">Template Name</Label>
+          <Input
+            id="template-name"
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="e.g., Morning ICU Shift"
+            className="mt-2"
+            data-testid="input-template-name"
+          />
+        </div>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={handleSkipTemplate} data-testid="button-skip-template">
+            Skip & Create Shift
+          </Button>
+          <Button 
+            type="button" 
+            onClick={handleSaveTemplate} 
+            disabled={saveTemplateMutation.isPending}
+            data-testid="button-save-template"
+          >
+            {saveTemplateMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Save Template
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

@@ -20,7 +20,9 @@ export function transformShiftToCard(shift: ShiftWithDetails): ShiftCardProps {
   return {
     id: shift.id,
     position: shift.position,
+    positionId: shift.positionId,
     area: shift.area,
+    areaId: shift.areaId,
     areaName: shift.area?.name,
     location: shift.location,
     date: shift.date,
@@ -33,6 +35,9 @@ export function transformShiftToCard(shift: ShiftWithDetails): ShiftCardProps {
     interestedCount: shift.interestedCount,
     assignedEmployee: shift.assignedEmployee,
     bonusAmount: shift.bonusAmount,
+    notifyAllAreas: shift.notifyAllAreas ?? undefined,
+    lastNotifiedAt: shift.lastNotifiedAt,
+    notificationCount: shift.notificationCount,
   };
 }
 

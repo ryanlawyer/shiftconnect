@@ -1,10 +1,11 @@
 import { CreateShiftForm } from "@/components/CreateShiftForm";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Shift } from "@shared/schema";
 import { Loader2 } from "lucide-react";
+import { useMemo } from "react";
 
 interface NewShiftProps {
   editId?: string;
@@ -12,8 +13,38 @@ interface NewShiftProps {
 
 export default function NewShift({ editId }: NewShiftProps) {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
   const isEditing = !!editId;
+
+  const cloneData = useMemo(() => {
+    if (!search || isEditing) return null;
+    const params = new URLSearchParams(search);
+    const positionId = params.get("positionId");
+    const areaId = params.get("areaId");
+    
+    if (!positionId || !areaId) return null;
+    
+    return {
+      id: "",
+      positionId,
+      areaId,
+      location: params.get("location") || "",
+      date: "",
+      startTime: params.get("startTime") || "",
+      endTime: params.get("endTime") || "",
+      requirements: params.get("requirements") || null,
+      bonusAmount: params.get("bonusAmount") ? parseInt(params.get("bonusAmount")!, 10) : null,
+      notifyAllAreas: false,
+      status: "available" as const,
+      postedById: null,
+      postedByName: "",
+      assignedEmployeeId: null,
+      createdAt: new Date(),
+      lastNotifiedAt: null,
+      notificationCount: null,
+    } as Shift;
+  }, [search, isEditing]);
 
   const { data: currentUser } = useQuery<{ username: string; role: string; employeeId?: string }>({
     queryKey: ["/api/user"],
@@ -110,13 +141,16 @@ export default function NewShift({ editId }: NewShiftProps) {
     );
   }
 
+  const initialFormData = isEditing ? existingShift : cloneData;
+
   return (
     <div className="p-6 max-w-2xl mx-auto" data-testid="page-new-shift">
       <CreateShiftForm 
         onSubmit={handleSubmit} 
         onCancel={handleCancel}
-        initialData={existingShift}
+        initialData={initialFormData || undefined}
         isEditing={isEditing}
+        isCloning={!!cloneData}
       />
     </div>
   );

@@ -582,6 +582,12 @@ export async function registerRoutes(
           const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
           const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
 
+          // Track notification stats on the shift
+          await storage.updateShift(shift.id, {
+            lastNotifiedAt: new Date(),
+            notificationCount: employeesToNotify.length,
+          });
+
           // Send SMS notifications asynchronously
           notifyNewShift(shift, area, employeesToNotify, webhookBaseUrl)
             .then(result => {
@@ -714,6 +720,12 @@ export async function registerRoutes(
 
       // Pass position for SMS template variables - use repost-specific notification
       if (eligibleEmployees.length > 0) {
+        // Track notification stats on the shift
+        updatedShift = await storage.updateShift(updatedShift.id, {
+          lastNotifiedAt: new Date(),
+          notificationCount: eligibleEmployees.length,
+        }) || updatedShift;
+        
         notifyRepostedShift(updatedShift, area, eligibleEmployees, webhookBaseUrl)
           .then(result => {
             console.log(`Shift repost notification sent: ${result.sent} successful, ${result.failed} failed`);
@@ -750,6 +762,87 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error reposting shift:", error);
       res.status(500).json({ error: "Failed to repost shift" });
+    }
+  });
+
+  // Notify employees for a single shift (quick action)
+  app.post("/api/shifts/:id/notify", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    try {
+      const shift = await storage.getShift(req.params.id);
+      if (!shift) return res.status(404).json({ error: "Shift not found" });
+      
+      if (shift.status !== "available") {
+        return res.status(400).json({ error: "Can only notify for available shifts" });
+      }
+
+      const area = await storage.getArea(shift.areaId);
+      const notifyAllAreas = shift.notifyAllAreas === true;
+
+      let eligibleEmployees: Employee[] = [];
+      if (notifyAllAreas) {
+        const allEmployees = await storage.getEmployees();
+        eligibleEmployees = allEmployees.filter((emp: Employee) =>
+          emp.positionId === shift.positionId &&
+          emp.status === "active" &&
+          emp.smsOptIn
+        );
+      } else {
+        const areaEmployees = await storage.getAreaEmployees(shift.areaId);
+        eligibleEmployees = areaEmployees.filter((emp: Employee) =>
+          emp.positionId === shift.positionId &&
+          emp.status === "active" &&
+          emp.smsOptIn
+        );
+      }
+
+      const protocol = req.secure ? "https" : (req.headers["x-forwarded-proto"] as string) || "http";
+      const forwardedHost = req.headers["x-forwarded-host"] as string;
+      const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
+      const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
+
+      if (eligibleEmployees.length > 0) {
+        await storage.updateShift(shift.id, {
+          lastNotifiedAt: new Date(),
+          notificationCount: eligibleEmployees.length,
+        });
+
+        notifyNewShift(shift, area, eligibleEmployees, webhookBaseUrl)
+          .then(result => {
+            console.log(`Quick notify sent: ${result.sent} successful, ${result.failed} failed`);
+          })
+          .catch(err => {
+            console.error("Error sending quick notifications:", err);
+          });
+      }
+
+      await logAuditEvent({
+        action: "shift_created",
+        actor: req.user as any,
+        targetType: "shift",
+        targetId: shift.id,
+        targetName: `${shift.date} ${shift.startTime}-${shift.endTime} (notify again)`,
+        details: {
+          location: shift.location,
+          areaId: shift.areaId,
+          eligibleRecipients: eligibleEmployees.length,
+          isNotifyAgain: true,
+        },
+        ipAddress: getClientIp(req),
+      });
+
+      res.json({
+        success: true,
+        notificationCount: eligibleEmployees.length,
+      });
+    } catch (error) {
+      console.error("Error notifying for shift:", error);
+      res.status(500).json({ error: "Failed to send notifications" });
     }
   });
 
@@ -916,6 +1009,218 @@ export async function registerRoutes(
     res.status(201).json(interest);
   });
 
+  // Bulk shift actions
+  app.post("/api/shifts/bulk/cancel", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    const { shiftIds } = req.body;
+    if (!Array.isArray(shiftIds) || shiftIds.length === 0) {
+      return res.status(400).json({ error: "shiftIds must be a non-empty array" });
+    }
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const shiftId of shiftIds) {
+      try {
+        const shift = await storage.getShift(shiftId);
+        if (!shift) {
+          failedCount++;
+          continue;
+        }
+        
+        // Cancel shift by deleting it
+        const deleted = await storage.deleteShift(shiftId);
+        if (deleted) {
+          successCount++;
+          await logAuditEvent({
+            action: "shift_deleted",
+            actor: req.user as any,
+            targetType: "shift",
+            targetId: shiftId,
+            targetName: `${shift.date} ${shift.startTime}-${shift.endTime}`,
+            details: { location: shift.location, areaId: shift.areaId, bulk: true },
+            ipAddress: getClientIp(req),
+          });
+        } else {
+          failedCount++;
+        }
+      } catch (error) {
+        console.error(`Error cancelling shift ${shiftId}:`, error);
+        failedCount++;
+      }
+    }
+
+    res.json({ successCount, failedCount });
+  });
+
+  app.post("/api/shifts/bulk/repost", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    const { shiftIds, bonusAmount } = req.body;
+    if (!Array.isArray(shiftIds) || shiftIds.length === 0) {
+      return res.status(400).json({ error: "shiftIds must be a non-empty array" });
+    }
+
+    const protocol = req.secure ? "https" : (req.headers["x-forwarded-proto"] as string) || "http";
+    const forwardedHost = req.headers["x-forwarded-host"] as string;
+    const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
+    const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
+
+    let successCount = 0;
+    let failedCount = 0;
+    let totalNotifications = 0;
+
+    for (const shiftId of shiftIds) {
+      try {
+        const shift = await storage.getShift(shiftId);
+        if (!shift || shift.status !== "available") {
+          failedCount++;
+          continue;
+        }
+
+        let updatedShift = shift;
+        if (bonusAmount !== undefined) {
+          updatedShift = await storage.updateShift(shift.id, { bonusAmount: bonusAmount || null }) || shift;
+        }
+
+        const area = await storage.getArea(updatedShift.areaId);
+        const notifyAllAreas = updatedShift.notifyAllAreas === true;
+
+        let eligibleEmployees: Employee[] = [];
+        if (notifyAllAreas) {
+          const allEmployees = await storage.getEmployees();
+          eligibleEmployees = allEmployees.filter((emp: Employee) =>
+            emp.positionId === updatedShift.positionId &&
+            emp.status === "active" &&
+            emp.smsOptIn
+          );
+        } else {
+          const areaEmployees = await storage.getAreaEmployees(updatedShift.areaId);
+          eligibleEmployees = areaEmployees.filter((emp: Employee) =>
+            emp.positionId === updatedShift.positionId &&
+            emp.status === "active" &&
+            emp.smsOptIn
+          );
+        }
+
+        if (eligibleEmployees.length > 0) {
+          await storage.updateShift(updatedShift.id, {
+            lastNotifiedAt: new Date(),
+            notificationCount: eligibleEmployees.length,
+          });
+
+          notifyRepostedShift(updatedShift, area, eligibleEmployees, webhookBaseUrl)
+            .catch(err => console.error(`Error sending repost notifications for shift ${shiftId}:`, err));
+          
+          totalNotifications += eligibleEmployees.length;
+        }
+
+        successCount++;
+
+        await logAuditEvent({
+          action: "shift_created",
+          actor: req.user as any,
+          targetType: "shift",
+          targetId: updatedShift.id,
+          targetName: `${updatedShift.date} ${updatedShift.startTime}-${updatedShift.endTime} (bulk repost)`,
+          details: {
+            location: updatedShift.location,
+            areaId: updatedShift.areaId,
+            bonusAmount: updatedShift.bonusAmount,
+            eligibleRecipients: eligibleEmployees.length,
+            isBulkRepost: true,
+          },
+          ipAddress: getClientIp(req),
+        });
+      } catch (error) {
+        console.error(`Error reposting shift ${shiftId}:`, error);
+        failedCount++;
+      }
+    }
+
+    res.json({ successCount, failedCount, totalNotifications });
+  });
+
+  app.post("/api/shifts/bulk/notify", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    const { shiftIds } = req.body;
+    if (!Array.isArray(shiftIds) || shiftIds.length === 0) {
+      return res.status(400).json({ error: "shiftIds must be a non-empty array" });
+    }
+
+    const protocol = req.secure ? "https" : (req.headers["x-forwarded-proto"] as string) || "http";
+    const forwardedHost = req.headers["x-forwarded-host"] as string;
+    const host = forwardedHost || process.env.REPLIT_DEV_DOMAIN || req.get("host");
+    const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
+
+    let successCount = 0;
+    let failedCount = 0;
+    let totalNotifications = 0;
+
+    for (const shiftId of shiftIds) {
+      try {
+        const shift = await storage.getShift(shiftId);
+        if (!shift || shift.status !== "available") {
+          failedCount++;
+          continue;
+        }
+
+        const area = await storage.getArea(shift.areaId);
+        const notifyAllAreas = shift.notifyAllAreas === true;
+
+        let eligibleEmployees: Employee[] = [];
+        if (notifyAllAreas) {
+          const allEmployees = await storage.getEmployees();
+          eligibleEmployees = allEmployees.filter((emp: Employee) =>
+            emp.positionId === shift.positionId &&
+            emp.status === "active" &&
+            emp.smsOptIn
+          );
+        } else {
+          const areaEmployees = await storage.getAreaEmployees(shift.areaId);
+          eligibleEmployees = areaEmployees.filter((emp: Employee) =>
+            emp.positionId === shift.positionId &&
+            emp.status === "active" &&
+            emp.smsOptIn
+          );
+        }
+
+        if (eligibleEmployees.length > 0) {
+          await storage.updateShift(shift.id, {
+            lastNotifiedAt: new Date(),
+            notificationCount: eligibleEmployees.length,
+          });
+
+          notifyNewShift(shift, area, eligibleEmployees, webhookBaseUrl)
+            .catch(err => console.error(`Error sending notifications for shift ${shiftId}:`, err));
+          
+          totalNotifications += eligibleEmployees.length;
+        }
+
+        successCount++;
+      } catch (error) {
+        console.error(`Error notifying for shift ${shiftId}:`, error);
+        failedCount++;
+      }
+    }
+
+    res.json({ successCount, failedCount, totalNotifications });
+  });
+
   // Messages
   app.get("/api/messages", async (req, res) => {
     const messages = await storage.getMessages();
@@ -1060,6 +1365,93 @@ export async function registerRoutes(
 
   // SMS Routes (protected by requireAuth since they're under /api)
   app.use("/api/sms", smsRoutes);
+
+  // Shift Templates CRUD
+  app.get("/api/shift-templates", async (req, res) => {
+    const templates = await storage.getShiftTemplates();
+    res.json(templates);
+  });
+
+  app.get("/api/shift-templates/:id", async (req, res) => {
+    const template = await storage.getShiftTemplate(req.params.id);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    res.json(template);
+  });
+
+  app.post("/api/shift-templates", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    const templateData = {
+      ...req.body,
+      createdById: user?.id || null,
+    };
+    
+    const template = await storage.createShiftTemplate(templateData);
+    
+    await logAuditEvent({
+      action: "template_created" as any,
+      actor: user,
+      targetType: "template" as any,
+      targetId: template.id,
+      targetName: template.name,
+      details: { positionId: template.positionId, areaId: template.areaId },
+      ipAddress: getClientIp(req),
+    });
+    
+    res.status(201).json(template);
+  });
+
+  app.patch("/api/shift-templates/:id", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    const template = await storage.updateShiftTemplate(req.params.id, req.body);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    
+    await logAuditEvent({
+      action: "template_updated" as any,
+      actor: user,
+      targetType: "template" as any,
+      targetId: template.id,
+      targetName: template.name,
+      details: req.body,
+      ipAddress: getClientIp(req),
+    });
+    
+    res.json(template);
+  });
+
+  app.delete("/api/shift-templates/:id", async (req, res) => {
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if (!userPermissions.includes("shifts:manage")) {
+      return res.status(403).json({ error: "Permission denied. Shift management required." });
+    }
+
+    const template = await storage.getShiftTemplate(req.params.id);
+    if (!template) return res.status(404).json({ error: "Template not found" });
+    
+    const deleted = await storage.deleteShiftTemplate(req.params.id);
+    
+    await logAuditEvent({
+      action: "template_deleted" as any,
+      actor: user,
+      targetType: "template" as any,
+      targetId: template.id,
+      targetName: template.name,
+      details: {},
+      ipAddress: getClientIp(req),
+    });
+    
+    res.json({ success: deleted });
+  });
 
   // Documentation Downloads
   app.get("/api/docs/:docName", async (req, res) => {

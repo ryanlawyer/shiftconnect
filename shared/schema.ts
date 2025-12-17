@@ -107,6 +107,8 @@ export const shifts = pgTable("shifts", {
   smsCode: text("sms_code"), // Short 6-char code for SMS replies (e.g., "ABC123")
   bonusAmount: integer("bonus_amount"), // Optional bonus amount in dollars (e.g., 50 for $50 bonus)
   notifyAllAreas: boolean("notify_all_areas").default(false), // When true, notify employees from all areas
+  lastNotifiedAt: timestamp("last_notified_at"), // When SMS notifications were last sent for this shift
+  notificationCount: integer("notification_count").default(0), // Number of employees notified in last notification
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -125,6 +127,27 @@ export const shiftInterests = pgTable("shift_interests", {
 export const insertShiftInterestSchema = createInsertSchema(shiftInterests).omit({ id: true, createdAt: true });
 export type InsertShiftInterest = z.infer<typeof insertShiftInterestSchema>;
 export type ShiftInterest = typeof shiftInterests.$inferSelect;
+
+// Shift Templates - reusable shift configurations
+export const shiftTemplates = pgTable("shift_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  positionId: varchar("position_id").notNull().references(() => positions.id),
+  areaId: varchar("area_id").notNull().references(() => areas.id),
+  location: text("location").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  requirements: text("requirements"),
+  bonusAmount: integer("bonus_amount"),
+  notifyAllAreas: boolean("notify_all_areas").default(false),
+  createdById: varchar("created_by_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertShiftTemplateSchema = createInsertSchema(shiftTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertShiftTemplate = z.infer<typeof insertShiftTemplateSchema>;
+export type ShiftTemplate = typeof shiftTemplates.$inferSelect;
 
 // Messages - SMS messages sent
 export const messages = pgTable("messages", {
