@@ -13,7 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle, UserCheck, Edit, RefreshCw, Trash2, DollarSign } from "lucide-react";
+import { MapPin, Clock, Calendar, Users, MessageSquare, Hand, CheckCircle, UserCheck, Edit, RefreshCw, Trash2, DollarSign, UserMinus } from "lucide-react";
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
@@ -62,6 +62,7 @@ export interface ShiftDetailModalProps {
   onEdit?: (shiftId: string) => void;
   onRepost?: (shiftId: string, bonusAmount: number | null) => void;
   onDelete?: (shiftId: string) => void;
+  onUnassign?: (shiftId: string, sendNotification: boolean) => void;
 }
 
 const statusConfig = {
@@ -81,10 +82,13 @@ export function ShiftDetailModal({
   onEdit,
   onRepost,
   onDelete,
+  onUnassign,
 }: ShiftDetailModalProps) {
   const [sendNotification, setSendNotification] = useState(true);
   const [showRepostDialog, setShowRepostDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showUnassignDialog, setShowUnassignDialog] = useState(false);
+  const [unassignNotify, setUnassignNotify] = useState(true);
   const [bonusAmount, setBonusAmount] = useState<string>(shift.bonusAmount?.toString() || "");
   const config = statusConfig[shift.status];
   const displayAreaName = shift.area?.name || shift.areaName || "Unassigned";
@@ -208,13 +212,25 @@ export function ShiftDetailModal({
                     </div>
                   </div>
                   {isAdmin && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onMessageEmployee?.(shift.assignedEmployee!.id)}
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onMessageEmployee?.(shift.assignedEmployee!.id)}
+                        data-testid="button-message-assigned"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setShowUnassignDialog(true)}
+                        className="text-destructive"
+                        data-testid="button-unassign-shift"
+                      >
+                        <UserMinus className="h-4 w-4" />
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -423,6 +439,47 @@ export function ShiftDetailModal({
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Remove Shift
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unassign Confirmation Dialog */}
+      <AlertDialog open={showUnassignDialog} onOpenChange={setShowUnassignDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign Employee</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to unassign {shift.assignedEmployee?.name} from this shift?
+              The shift will be marked as available again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="notify-unassign" className="text-sm">
+                Send SMS notification to employee
+              </Label>
+              <Switch
+                id="notify-unassign"
+                checked={unassignNotify}
+                onCheckedChange={setUnassignNotify}
+                data-testid="switch-notify-unassign"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                onUnassign?.(shift.id, unassignNotify);
+                setShowUnassignDialog(false);
+                onOpenChange(false);
+              }}
+              className="bg-destructive text-destructive-foreground"
+              data-testid="button-confirm-unassign"
+            >
+              <UserMinus className="h-4 w-4 mr-1" />
+              Unassign Employee
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

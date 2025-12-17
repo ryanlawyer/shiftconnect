@@ -17,7 +17,7 @@ import { generateDefaultUsername, generateUniqueUsername } from "./utils/usernam
 import { scryptSync, randomBytes } from "crypto";
 import { logAuditEvent, getClientIp } from "./audit";
 import smsRoutes from "./routes/sms";
-import { notifyNewShift, notifyRepostedShift, notifyShiftAssigned, notifyShiftFilledToOthers } from "./services/smsNotifications";
+import { notifyNewShift, notifyRepostedShift, notifyShiftAssigned, notifyShiftFilledToOthers, notifyShiftUnassigned } from "./services/smsNotifications";
 import { scheduleShiftReminder, startReminderChecker, cancelShiftReminder } from "./services/shiftReminderScheduler";
 
 export async function registerRoutes(
@@ -758,6 +758,75 @@ export async function registerRoutes(
         console.error("Error notifying other interested employees:", err);
       });
 
+    res.json(shift);
+  });
+
+  // Unassign employee from shift
+  app.post("/api/shifts/:id/unassign", async (req, res) => {
+    const { sendNotification = true } = req.body;
+    const originalShift = await storage.getShift(req.params.id);
+    
+    if (!originalShift) {
+      return res.status(404).json({ error: "Shift not found" });
+    }
+    
+    if (originalShift.status !== "claimed" || !originalShift.assignedEmployeeId) {
+      return res.status(400).json({ error: "Shift is not currently assigned to an employee" });
+    }
+    
+    const unassignedEmployee = await storage.getEmployee(originalShift.assignedEmployeeId);
+    const area = await storage.getArea(originalShift.areaId);
+    
+    // Cancel any scheduled reminder for this shift
+    if (unassignedEmployee) {
+      cancelShiftReminder(originalShift.id, unassignedEmployee.id);
+    }
+    
+    // Update shift to be available again
+    const shift = await storage.updateShift(req.params.id, {
+      status: "available",
+      assignedEmployeeId: null,
+    });
+    
+    if (!shift) {
+      return res.status(404).json({ error: "Failed to update shift" });
+    }
+    
+    // Log audit event
+    await logAuditEvent({
+      action: "shift_unassigned",
+      actor: req.user as any,
+      targetType: "shift",
+      targetId: shift.id,
+      targetName: `${shift.date} ${shift.startTime}-${shift.endTime}`,
+      details: {
+        employeeId: originalShift.assignedEmployeeId,
+        employeeName: unassignedEmployee?.name,
+        location: shift.location,
+        previousStatus: originalShift.status,
+      },
+      ipAddress: getClientIp(req),
+    });
+    
+    // Send notification to unassigned employee
+    if (sendNotification && unassignedEmployee) {
+      const protocol = req.secure ? "https" : "http";
+      const host = req.get("host");
+      const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
+      
+      notifyShiftUnassigned(shift, unassignedEmployee, area, webhookBaseUrl)
+        .then(result => {
+          if (result.success) {
+            console.log(`Unassignment notification sent to ${unassignedEmployee.name}`);
+          } else {
+            console.log(`Failed to send unassignment notification to ${unassignedEmployee.name}: ${result.errorMessage}`);
+          }
+        })
+        .catch(err => {
+          console.error("Error sending unassignment notification:", err);
+        });
+    }
+    
     res.json(shift);
   });
 

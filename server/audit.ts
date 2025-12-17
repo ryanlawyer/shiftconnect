@@ -8,6 +8,7 @@ export type AuditAction =
   | "shift_created"
   | "shift_deleted"
   | "shift_assigned"
+  | "shift_unassigned"
   | "force_assignment"
   | "user_created"
   | "user_password_reset"

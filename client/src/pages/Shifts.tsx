@@ -167,7 +167,33 @@ export default function Shifts() {
     onError: (error: any) => {
       toast({
         title: "Delete Failed",
-        description: error.message || "Failed to remove shift. Please try again.",
+        description: error.message || "Failed to delete shift",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unassignMutation = useMutation({
+    mutationFn: async ({ shiftId, sendNotification }: { shiftId: string; sendNotification: boolean }) => {
+      const response = await apiRequest("POST", `/api/shifts/${shiftId}/unassign`, {
+        sendNotification,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts", selectedShiftId] });
+      toast({
+        title: "Employee Unassigned",
+        description: "The employee has been unassigned and the shift is now available.",
+      });
+      setModalOpen(false);
+      setSelectedShiftId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unassign Failed",
+        description: error.message || "Failed to unassign employee. Please try again.",
         variant: "destructive",
       });
     },
@@ -183,6 +209,10 @@ export default function Shifts() {
   
   const handleDelete = (shiftId: string) => {
     deleteMutation.mutate(shiftId);
+  };
+  
+  const handleUnassign = (shiftId: string, sendNotification: boolean) => {
+    unassignMutation.mutate({ shiftId, sendNotification });
   };
   
   const handleEdit = (shiftId: string) => {
@@ -323,6 +353,7 @@ export default function Shifts() {
           onEdit={handleEdit}
           onRepost={handleRepost}
           onDelete={handleDelete}
+          onUnassign={handleUnassign}
         />
       )}
     </div>

@@ -517,6 +517,101 @@ export async function notifyShiftAssigned(
 }
 
 /**
+ * Send notification to employee when they are unassigned from a shift
+ */
+export async function notifyShiftUnassigned(
+  shift: Shift,
+  employee: Employee,
+  area?: Area | null,
+  webhookBaseUrl?: string
+): Promise<SendSMSResult> {
+  const settings = await getSMSSettings();
+
+  // Check if notifications are enabled
+  if (!settings.smsEnabled) {
+    return { success: false, errorMessage: "Notifications disabled" };
+  }
+
+  // Check if employee has opted in
+  if (!employee.smsOptIn) {
+    return { success: false, errorMessage: "Employee opted out of SMS" };
+  }
+
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
+  if (!initialized) {
+    return { success: false, errorMessage: "SMS provider not initialized" };
+  }
+
+  // Look up position for template
+  const position = await storage.getPosition(shift.positionId);
+  
+  // Try to get template, fall back to hardcoded message
+  const templateMessage = await getRenderedTemplate("shift_unassigned", {
+    shift,
+    employee,
+    area,
+    position: position ? { title: position.title } : undefined,
+  });
+  const message =
+    templateMessage ||
+    `[ShiftConnect] Shift Update\nYou have been unassigned from the shift on ${shift.date} at ${shift.location} (${shift.startTime}-${shift.endTime}).\nPlease contact your supervisor if you have questions.`;
+
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
+
+  try {
+    // Create message record
+    const messageRecord = await storage.createMessage({
+      employeeId: employee.id,
+      direction: "outbound",
+      content: message,
+      status: "pending",
+      messageType: "shift_unassigned",
+      relatedShiftId: shift.id,
+      threadId: randomUUID(),
+    });
+
+    // Send SMS using provider abstraction with retry
+    const result = await smsProvider.sendSMSWithRetry(employee.phone, message, statusCallback);
+
+    // Update message with result
+    await storage.updateMessage(messageRecord.id, {
+      providerMessageId: result.messageId || result.providerMessageId || null,
+      smsProvider: settings.smsProvider,
+      status: result.success ? "sent" : "failed",
+      deliveryStatus: result.status || null,
+      errorCode: result.errorCode || null,
+      errorMessage: result.errorMessage || null,
+      segments: result.segments || 1,
+    });
+
+    // Log audit event
+    await logAuditEvent({
+      action: result.success ? "sms_sent" : "sms_failed",
+      actor: null,
+      targetType: "message",
+      targetId: messageRecord.id,
+      targetName: employee.name,
+      details: {
+        type: "shift_unassigned",
+        provider: settings.smsProvider,
+        shiftId: shift.id,
+        messageId: result.messageId,
+        errorCode: result.errorCode,
+      },
+      ipAddress: undefined,
+    });
+
+    return result;
+  } catch (error) {
+    console.error(`Failed to send unassignment notification to ${employee.name}:`, error);
+    return { success: false, errorMessage: "Send failed" };
+  }
+}
+
+/**
  * Send shift reminder (typically called by a scheduled job)
  */
 export async function sendShiftReminder(
