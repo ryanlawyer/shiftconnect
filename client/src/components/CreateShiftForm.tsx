@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { usePermissions } from "@/hooks/use-permissions";
+import { PERMISSIONS } from "@shared/permissions";
 import {
   Form,
   FormControl,
@@ -36,6 +39,7 @@ const formSchema = z.object({
   endTime: z.string().min(1, "End time is required"),
   requirements: z.string().optional(),
   sendNotification: z.boolean().default(true),
+  notifyAllAreas: z.boolean().default(false),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -48,6 +52,9 @@ export interface CreateShiftFormProps {
 }
 
 export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: CreateShiftFormProps) {
+  const { hasPermission } = usePermissions();
+  const canNotifyAllAreas = hasPermission(PERMISSIONS.SHIFTS_ALL_AREAS);
+  
   const { data: areas = [], isLoading: areasLoading } = useQuery<Area[]>({
     queryKey: ["/api/areas"],
   });
@@ -73,6 +80,7 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
       endTime: initialData?.endTime || "",
       requirements: initialData?.requirements || "",
       sendNotification: !isEditing,
+      notifyAllAreas: initialData?.notifyAllAreas || false,
     },
   });
 
@@ -87,6 +95,7 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
         endTime: initialData.endTime,
         requirements: initialData.requirements || "",
         sendNotification: false,
+        notifyAllAreas: initialData.notifyAllAreas || false,
       });
     }
   }, [initialData, form]);
@@ -162,14 +171,37 @@ export function CreateShiftForm({ onSubmit, onCancel, initialData, isEditing }: 
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormDescription>
-                      Only employees assigned to this area will be notified
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
+
+            {canNotifyAllAreas && (
+              <FormField
+                control={form.control}
+                name="notifyAllAreas"
+                render={({ field }) => (
+                  <FormItem className="flex items-start gap-3 rounded-lg border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="checkbox-notify-all-areas"
+                      />
+                    </FormControl>
+                    <div className="space-y-1">
+                      <FormLabel className="text-base font-medium cursor-pointer">
+                        Notify All Areas
+                      </FormLabel>
+                      <FormDescription>
+                        Send notifications to employees from all areas, not just the selected area. Use this to reach a wider pool of candidates.
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+            )}
 
             <FormField
               control={form.control}

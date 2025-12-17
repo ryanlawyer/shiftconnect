@@ -541,15 +541,25 @@ export async function registerRoutes(
 
       if (sendNotification === true) {
         const area = await storage.getArea(shift.areaId);
-        console.log(`Shift notification requested - Area: ${area?.name || 'none'}, smsEnabled: ${area?.smsEnabled}`);
+        const notifyAllAreas = shift.notifyAllAreas === true;
+        console.log(`Shift notification requested - Area: ${area?.name || 'none'}, notifyAllAreas: ${notifyAllAreas}`);
         
-        if (area) {
+        let employeesToNotify: Employee[] = [];
+        
+        if (notifyAllAreas) {
+          // Get all active employees from all areas
+          const allEmployees = await storage.getEmployees();
+          employeesToNotify = allEmployees.filter(e => e.status === "active" && e.smsOptIn);
+          console.log(`Notify All Areas enabled - Found ${employeesToNotify.length} eligible employees across all areas`);
+        } else if (area) {
+          // Get employees only from the specific area
           const areaEmployees = await storage.getAreaEmployees(shift.areaId);
-          notificationRecipients = areaEmployees
-            .filter(e => e.status === "active" && e.smsOptIn)
-            .map(e => ({ id: e.id, name: e.name, phone: e.phone }));
-
-          console.log(`Found ${areaEmployees.length} employees in area, ${notificationRecipients.length} eligible for SMS`);
+          employeesToNotify = areaEmployees.filter(e => e.status === "active" && e.smsOptIn);
+          console.log(`Found ${areaEmployees.length} employees in area, ${employeesToNotify.length} eligible for SMS`);
+        }
+        
+        if (employeesToNotify.length > 0) {
+          notificationRecipients = employeesToNotify.map(e => ({ id: e.id, name: e.name, phone: e.phone }));
 
           // Get webhook base URL for status callbacks
           const protocol = req.secure ? "https" : "http";
@@ -558,7 +568,7 @@ export async function registerRoutes(
           const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
 
           // Send SMS notifications asynchronously
-          notifyNewShift(shift, area, areaEmployees, webhookBaseUrl)
+          notifyNewShift(shift, area, employeesToNotify, webhookBaseUrl)
             .then(result => {
               console.log(`Shift notification sent: ${result.sent} successful, ${result.failed} failed`);
             })
@@ -566,7 +576,7 @@ export async function registerRoutes(
               console.error("Error sending shift notifications:", err);
             });
         } else {
-          console.log(`No area found for shift ${shift.id}, skipping notifications`);
+          console.log(`No eligible employees found for shift ${shift.id}, skipping notifications`);
         }
       }
 
