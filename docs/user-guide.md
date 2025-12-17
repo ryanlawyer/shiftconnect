@@ -58,7 +58,8 @@ You can interact with ShiftConnect via text message. Reply to any ShiftConnect m
 | `SHIFTS` | View all available shifts you're eligible for |
 | `STATUS` | Check your assigned shifts and pending interests |
 | `CONFIRM` | Confirm an assigned shift |
-| `CANCEL` | Cancel a shift or withdraw interest |
+| `WITHDRAW` | List shifts you've expressed interest in |
+| `WITHDRAW [CODE]` | Withdraw interest in a specific shift (e.g., `WITHDRAW ABC123`) |
 | `HELP` | Show available commands |
 | `STOP` | Opt out of SMS notifications |
 | `START` | Opt back in to SMS notifications |

@@ -36,7 +36,7 @@ function markMessageProcessed(messageId: string): boolean {
 // ============================================================
 
 interface ParsedCommand {
-  type: 'interest_yes' | 'interest_no' | 'confirm' | 'cancel' | 'status' |
+  type: 'interest_yes' | 'interest_no' | 'confirm' | 'withdraw' | 'status' |
         'shifts' | 'help' | 'stop' | 'start' | 'unknown';
   shiftCode?: string; // Optional specific shift reference
   originalMessage: string;
@@ -65,8 +65,11 @@ function parseInboundCommand(body: string): ParsedCommand {
     return { type: 'confirm', originalMessage: body };
   }
 
-  if (/^CANCEL/.test(normalized)) {
-    return { type: 'cancel', originalMessage: body };
+  if (/^WITHDRAW/.test(normalized)) {
+    // Look for a shift code (6-char alphanumeric) in the message
+    const shiftCodeMatch = body.match(/\b([A-Z0-9]{6})\b/i);
+    const shiftCode = shiftCodeMatch ? shiftCodeMatch[1].toUpperCase() : undefined;
+    return { type: 'withdraw', shiftCode, originalMessage: body };
   }
 
   if (/^STATUS/.test(normalized)) {
@@ -312,62 +315,58 @@ async function handleConfirm(employee: Employee, ipAddress?: string): Promise<st
 }
 
 /**
- * Handle CANCEL command - withdraw interest or cancel assigned shift
+ * Handle WITHDRAW command - withdraw interest in a shift
+ * WITHDRAW (no code) = list shifts with pending interest
+ * WITHDRAW [code] = withdraw interest from specific shift
  */
-async function handleCancel(employee: Employee, ipAddress?: string): Promise<string> {
-  // First check for pending interests
+async function handleWithdraw(employee: Employee, shiftCode?: string, ipAddress?: string): Promise<string> {
+  // Get all pending interests for this employee
   const interests = await storage.getEmployeeShiftInterests(employee.id);
-  const pendingInterest = interests
+  const pendingInterests = interests
     .filter(i => i.shift && i.shift.status === 'available')
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  if (pendingInterest) {
-    // Delete the interest
-    await storage.deleteShiftInterest(pendingInterest.shiftId, pendingInterest.employeeId);
-    const shift = pendingInterest.shift;
-    const dateFormatted = formatDateForSms(shift.date);
-
-    await logAuditEvent({
-      action: "shift_interest_cancelled_via_sms",
-      actor: null,
-      targetType: "shift",
-      targetId: shift.id,
-      targetName: `${shift.date} ${shift.startTime}-${shift.endTime}`,
-      details: { employeeId: employee.id, employeeName: employee.name },
-      ipAddress: ipAddress,
-    });
-
-    return `Your interest in the shift on ${dateFormatted} (${shift.startTime}-${shift.endTime}) has been withdrawn.`;
+  if (pendingInterests.length === 0) {
+    return "You don't have any pending shift interests to withdraw. Reply STATUS to check your current status.";
   }
 
-  // Check for assigned shifts
-  const shifts = await storage.getShifts();
-  const assignedShift = shifts
-    .filter(s => s.assignedEmployeeId === employee.id && s.status === 'claimed')
-    .sort((a, b) => a.date.localeCompare(b.date))[0];
-
-  if (assignedShift) {
-    // Unassign the shift
-    await storage.updateShift(assignedShift.id, {
-      assignedEmployeeId: null,
-      status: 'available',
-    });
-    const dateFormatted = formatDateForSms(assignedShift.date);
-
-    await logAuditEvent({
-      action: "shift_cancelled_via_sms",
-      actor: null,
-      targetType: "shift",
-      targetId: assignedShift.id,
-      targetName: `${assignedShift.date} ${assignedShift.startTime}-${assignedShift.endTime}`,
-      details: { employeeId: employee.id, employeeName: employee.name },
-      ipAddress: ipAddress,
-    });
-
-    return `Your shift on ${dateFormatted} (${assignedShift.startTime}-${assignedShift.endTime}) has been cancelled. The shift is now available for others.\n\nPlease inform your supervisor if this cancellation was unexpected.`;
+  // If no shift code provided, list all shifts with pending interest
+  if (!shiftCode) {
+    let message = "[ShiftConnect] Your pending interests:\n\n";
+    for (const interest of pendingInterests) {
+      const shift = interest.shift;
+      const dateFormatted = formatDateForSms(shift.date);
+      const code = shift.smsCode || 'N/A';
+      message += `${dateFormatted} ${shift.startTime}-${shift.endTime}\n`;
+      message += `Code: ${code}\n\n`;
+    }
+    message += "Reply WITHDRAW [code] to withdraw interest in a specific shift.";
+    return message;
   }
 
-  return "You don't have any shifts or pending interests to cancel. Reply STATUS to check your current status.";
+  // Find the shift by SMS code
+  const targetInterest = pendingInterests.find(i => i.shift?.smsCode === shiftCode);
+  
+  if (!targetInterest) {
+    return `No pending interest found for shift code ${shiftCode}. Reply WITHDRAW to see your pending interests.`;
+  }
+
+  // Delete the interest
+  await storage.deleteShiftInterest(targetInterest.shiftId, targetInterest.employeeId);
+  const shift = targetInterest.shift;
+  const dateFormatted = formatDateForSms(shift.date);
+
+  await logAuditEvent({
+    action: "shift_interest_withdrawn_via_sms",
+    actor: null,
+    targetType: "shift",
+    targetId: shift.id,
+    targetName: `${shift.date} ${shift.startTime}-${shift.endTime}`,
+    details: { employeeId: employee.id, employeeName: employee.name, shiftCode },
+    ipAddress: ipAddress,
+  });
+
+  return `Your interest in the shift on ${dateFormatted} (${shift.startTime}-${shift.endTime}) has been withdrawn.`;
 }
 
 const router = Router();
@@ -1979,7 +1978,8 @@ router.post("/webhooks/ringcentral/inbound", async (req, res) => {
           "YES <code> - Interest in specific shift\n" +
           "NO - Decline a shift\n" +
           "CONFIRM - Confirm assigned shift\n" +
-          "CANCEL - Withdraw interest/cancel shift\n" +
+          "WITHDRAW - List shifts you're interested in\n" +
+          "WITHDRAW <code> - Withdraw interest in shift\n" +
           "STATUS - Your shifts & interests\n" +
           "SHIFTS - View available shifts\n" +
           "STOP - Unsubscribe\n" +
@@ -2006,8 +2006,8 @@ router.post("/webhooks/ringcentral/inbound", async (req, res) => {
         responseMessage = await handleConfirm(employee, ipAddress);
         break;
 
-      case 'cancel':
-        responseMessage = await handleCancel(employee, ipAddress);
+      case 'withdraw':
+        responseMessage = await handleWithdraw(employee, parsedCommand.shiftCode, ipAddress);
         break;
 
       case 'unknown':
@@ -2123,7 +2123,8 @@ router.post("/webhooks/twilio/inbound", async (req, res) => {
         "YES <code> - Interest in specific shift\n" +
         "NO - Decline a shift\n" +
         "CONFIRM - Confirm assigned shift\n" +
-        "CANCEL - Withdraw interest/cancel shift\n" +
+        "WITHDRAW - List shifts you're interested in\n" +
+        "WITHDRAW <code> - Withdraw interest in shift\n" +
         "STATUS - Your shifts & interests\n" +
         "SHIFTS - View available shifts\n" +
         "STOP - Unsubscribe\n" +
@@ -2150,8 +2151,8 @@ router.post("/webhooks/twilio/inbound", async (req, res) => {
       responseMessage = await handleConfirm(employee, ipAddress);
       break;
 
-    case 'cancel':
-      responseMessage = await handleCancel(employee, ipAddress);
+    case 'withdraw':
+      responseMessage = await handleWithdraw(employee, parsedCommand.shiftCode, ipAddress);
       break;
 
     case 'unknown':

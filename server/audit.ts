@@ -34,6 +34,7 @@ export type AuditAction =
   | "shift_interest_declined_via_sms"
   | "shift_confirmed_via_sms"
   | "shift_interest_cancelled_via_sms"
+  | "shift_interest_withdrawn_via_sms"
   | "shift_cancelled_via_sms"
   | "sms_test"
   | "setting_updated"

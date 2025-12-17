@@ -124,7 +124,8 @@ To receive SMS replies from employees, a webhook subscription must be created:
 - `SHIFTS` - View available open shifts
 - `STATUS` - Check assigned shifts and pending interests
 - `CONFIRM` - Confirm an assigned shift
-- `CANCEL` - Cancel a shift or withdraw interest
+- `WITHDRAW` - List shifts you've expressed interest in
+- `WITHDRAW <code>` - Withdraw interest in a specific shift
 - `HELP` - Show available commands
 - `STOP` - Opt out of SMS notifications
 - `START` - Opt back in to SMS notifications
