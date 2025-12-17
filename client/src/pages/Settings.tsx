@@ -2678,6 +2678,22 @@ export default function Settings() {
                   Download
                 </Button>
               </div>
+              <div className="flex items-center justify-between p-4 rounded-lg border">
+                <div className="space-y-0.5">
+                  <p className="font-medium">Feature Documentation</p>
+                  <p className="text-sm text-muted-foreground">
+                    Complete list of all ShiftConnect features, capabilities, and how to use them
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => window.open("/api/docs/features", "_blank")}
+                  data-testid="button-view-features-doc"
+                >
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  View
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

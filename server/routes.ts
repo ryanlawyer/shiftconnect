@@ -1462,6 +1462,7 @@ export async function registerRoutes(
     const docFiles: Record<string, string> = {
       "user-guide": "docs/user-guide.md",
       "admin-guide": "docs/admin-guide.md",
+      "features": "docs/features.md",
     };
     
     const filePath = docFiles[docName];
