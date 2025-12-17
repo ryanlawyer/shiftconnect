@@ -2,7 +2,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { MapPin, Clock, Users, Calendar, Hand, UserCheck, DollarSign } from "lucide-react";
+import { MapPin, Clock, Users, Calendar, Hand, UserCheck, DollarSign, Globe } from "lucide-react";
 import type { Area, Employee } from "@shared/schema";
 
 export type ShiftStatus = "available" | "claimed" | "expired";
@@ -23,6 +23,7 @@ export interface ShiftCardProps {
   interestedCount?: number;
   assignedEmployee?: Employee | null;
   bonusAmount?: number | null;
+  notifyAllAreas?: boolean;
   onShowInterest?: (id: string) => void;
   onViewDetails?: (id: string) => void;
   isAdmin?: boolean;
@@ -50,6 +51,7 @@ export function ShiftCard({
   interestedCount = 0,
   assignedEmployee,
   bonusAmount,
+  notifyAllAreas,
   onShowInterest,
   onViewDetails,
   isAdmin = false,
@@ -62,10 +64,16 @@ export function ShiftCard({
       <CardHeader className="flex flex-row items-start justify-between gap-4 pb-2">
         <div className="space-y-1">
           <h3 className="text-lg font-medium" data-testid={`text-position-${id}`}>{position}</h3>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="outline" className="text-xs" data-testid={`badge-area-${id}`}>
               {displayAreaName}
             </Badge>
+            {notifyAllAreas && (
+              <Badge variant="secondary" className="text-xs" data-testid={`badge-all-areas-${id}`}>
+                <Globe className="h-3 w-3 mr-1" />
+                All Areas
+              </Badge>
+            )}
           </div>
         </div>
         <Badge className={config.className} data-testid={`badge-status-${id}`}>

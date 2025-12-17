@@ -530,6 +530,21 @@ export async function registerRoutes(
 
   app.post("/api/shifts", async (req, res) => {
     const { sendNotification = false, ...shiftData } = req.body;
+    
+    // Server-side permission check for notifyAllAreas - only accept actual booleans
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    // Only accept true boolean values, reject strings/numbers to prevent accidental coercion
+    const isValidBooleanTrue = shiftData.notifyAllAreas === true;
+    if (isValidBooleanTrue && !userPermissions.includes("shifts:all_areas")) {
+      // Silently remove the flag if user lacks permission
+      shiftData.notifyAllAreas = false;
+      console.warn(`User ${user?.username} attempted to set notifyAllAreas without permission`);
+    } else if (typeof shiftData.notifyAllAreas !== "boolean") {
+      // Non-boolean value, default to false
+      shiftData.notifyAllAreas = false;
+    }
+    
     const parsed = insertShiftSchema.safeParse(shiftData);
     if (!parsed.success) return res.status(400).json({ error: parsed.error });
 
@@ -592,7 +607,28 @@ export async function registerRoutes(
   });
 
   app.patch("/api/shifts/:id", async (req, res) => {
-    const shift = await storage.updateShift(req.params.id, req.body);
+    const updateData = { ...req.body };
+    
+    // Server-side permission check for notifyAllAreas - only accept actual booleans
+    const user = req.user as any;
+    const userPermissions = user?.permissions || [];
+    if ("notifyAllAreas" in updateData) {
+      // Only accept true boolean values, reject strings/numbers to prevent accidental coercion
+      const isValidBooleanTrue = updateData.notifyAllAreas === true;
+      const isValidBooleanFalse = updateData.notifyAllAreas === false;
+      
+      if (!isValidBooleanTrue && !isValidBooleanFalse) {
+        // Non-boolean value, remove from update to prevent coercion issues
+        delete updateData.notifyAllAreas;
+      } else if (isValidBooleanTrue && !userPermissions.includes("shifts:all_areas")) {
+        // User lacks permission, silently remove the flag
+        delete updateData.notifyAllAreas;
+        console.warn(`User ${user?.username} attempted to set notifyAllAreas via PATCH without permission`);
+      }
+      // If it's a valid boolean (true or false) and user has permission, keep it as-is
+    }
+    
+    const shift = await storage.updateShift(req.params.id, updateData);
     if (!shift) return res.status(404).json({ error: "Shift not found" });
     res.json(shift);
   });
@@ -634,17 +670,41 @@ export async function registerRoutes(
         updatedShift = await storage.updateShift(shift.id, { bonusAmount: bonusAmount || null }) || shift;
       }
 
-      // Get area and eligible employees for notification
+      // Get area and employees for notification
       const area = await storage.getArea(updatedShift.areaId);
-      const areaEmployees = await storage.getAreaEmployees(updatedShift.areaId);
       const position = await storage.getPosition(updatedShift.positionId);
       
-      // Filter to employees with matching position, active status, and SMS opt-in
-      const eligibleEmployees = areaEmployees.filter((emp: Employee) => 
-        emp.positionId === updatedShift.positionId && 
-        emp.status === "active" && 
-        emp.smsOptIn
-      );
+      // Server-side permission check for notifyAllAreas
+      const user = req.user as any;
+      const userPermissions = user?.permissions || [];
+      let notifyAllAreas = updatedShift.notifyAllAreas === true;
+      if (notifyAllAreas && !userPermissions.includes("shifts:all_areas")) {
+        // User doesn't have permission, fall back to area-only notification
+        notifyAllAreas = false;
+        console.warn(`User ${user?.username} attempted to repost with notifyAllAreas without permission`);
+      }
+      
+      let eligibleEmployees: Employee[] = [];
+      
+      if (notifyAllAreas) {
+        // Get all active employees with matching position from all areas
+        const allEmployees = await storage.getEmployees();
+        eligibleEmployees = allEmployees.filter((emp: Employee) => 
+          emp.positionId === updatedShift.positionId && 
+          emp.status === "active" && 
+          emp.smsOptIn
+        );
+        console.log(`Repost with All Areas - Found ${eligibleEmployees.length} eligible employees across all areas`);
+      } else {
+        // Get employees only from the specific area
+        const areaEmployees = await storage.getAreaEmployees(updatedShift.areaId);
+        eligibleEmployees = areaEmployees.filter((emp: Employee) => 
+          emp.positionId === updatedShift.positionId && 
+          emp.status === "active" && 
+          emp.smsOptIn
+        );
+        console.log(`Repost - Found ${eligibleEmployees.length} eligible employees in area`);
+      }
 
       // Send notifications
       const protocol = req.secure ? "https" : (req.headers["x-forwarded-proto"] as string) || "http";
@@ -653,7 +713,7 @@ export async function registerRoutes(
       const webhookBaseUrl = process.env.WEBHOOK_BASE_URL || `${protocol}://${host}`;
 
       // Pass position for SMS template variables - use repost-specific notification
-      if (area) {
+      if (eligibleEmployees.length > 0) {
         notifyRepostedShift(updatedShift, area, eligibleEmployees, webhookBaseUrl)
           .then(result => {
             console.log(`Shift repost notification sent: ${result.sent} successful, ${result.failed} failed`);
@@ -662,7 +722,7 @@ export async function registerRoutes(
             console.error("Error sending shift repost notifications:", err);
           });
       } else {
-        console.warn(`Shift ${updatedShift.id} has no valid area, skipping notifications`);
+        console.warn(`No eligible employees found for shift ${updatedShift.id}, skipping notifications`);
       }
 
       await logAuditEvent({
