@@ -106,6 +106,7 @@ export const shifts = pgTable("shifts", {
   assignedEmployeeId: varchar("assigned_employee_id").references(() => employees.id),
   smsCode: text("sms_code"), // Short 6-char code for SMS replies (e.g., "ABC123")
   bonusAmount: integer("bonus_amount"), // Optional bonus amount in dollars (e.g., 50 for $50 bonus)
+  notifyAllAreas: boolean("notify_all_areas").default(false), // When true, notify employees from all areas
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -8,6 +8,7 @@ export const PERMISSIONS = {
   SHIFTS_VIEW: "shifts:view",
   SHIFTS_MANAGE: "shifts:manage",
   SHIFTS_INTEREST: "shifts:interest", // Express interest in shifts
+  SHIFTS_ALL_AREAS: "shifts:all_areas", // Can create shifts that notify all areas
   
   // Employee management
   EMPLOYEES_VIEW: "employees:view",
@@ -38,6 +39,7 @@ export const ROLE_PERMISSIONS = {
     PERMISSIONS.DASHBOARD_VIEW,
     PERMISSIONS.SHIFTS_VIEW,
     PERMISSIONS.SHIFTS_MANAGE,
+    PERMISSIONS.SHIFTS_ALL_AREAS,
     PERMISSIONS.EMPLOYEES_VIEW,
     PERMISSIONS.EMPLOYEES_MANAGE,
     PERMISSIONS.REPORTS_VIEW,
