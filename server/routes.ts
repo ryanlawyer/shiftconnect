@@ -71,6 +71,35 @@ export async function registerRoutes(
     smsRoutes(req, res, next);
   });
 
+  // Documentation Downloads - Public access (registered before requireAuth)
+  app.get("/api/docs/:docName", async (req, res) => {
+    const { docName } = req.params;
+    const fs = await import("fs");
+    const path = await import("path");
+    
+    const docFiles: Record<string, string> = {
+      "user-guide": "docs/user-guide.md",
+      "admin-guide": "docs/admin-guide.md",
+      "features": "docs/features.md",
+    };
+    
+    const filePath = docFiles[docName];
+    if (!filePath) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+    
+    const fullPath = path.resolve(process.cwd(), filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: "Document file not found" });
+    }
+    
+    const content = fs.readFileSync(fullPath, "utf-8");
+    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${docName}.md"`);
+    res.send(content);
+  });
+
   // Protect all API routes defined here
   app.use("/api", requireAuth);
 
@@ -1451,35 +1480,6 @@ export async function registerRoutes(
     });
     
     res.json({ success: deleted });
-  });
-
-  // Documentation Downloads
-  app.get("/api/docs/:docName", async (req, res) => {
-    const { docName } = req.params;
-    const fs = await import("fs");
-    const path = await import("path");
-    
-    const docFiles: Record<string, string> = {
-      "user-guide": "docs/user-guide.md",
-      "admin-guide": "docs/admin-guide.md",
-      "features": "docs/features.md",
-    };
-    
-    const filePath = docFiles[docName];
-    if (!filePath) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-    
-    const fullPath = path.resolve(process.cwd(), filePath);
-    
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: "Document file not found" });
-    }
-    
-    const content = fs.readFileSync(fullPath, "utf-8");
-    res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${docName}.md"`);
-    res.send(content);
   });
 
   return httpServer;
