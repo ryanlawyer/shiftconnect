@@ -838,4 +838,99 @@ export async function isSMSConfigured(): Promise<boolean> {
   return !!(settings.twilioAccountSid && settings.twilioAuthToken && settings.twilioFromNumber);
 }
 
+/**
+ * Send confirmation to employee when they express interest in a shift
+ */
+export async function notifyShiftInterestConfirmation(
+  shift: Shift,
+  employee: Employee,
+  area?: Area | null,
+  webhookBaseUrl?: string
+): Promise<SendSMSResult> {
+  const settings = await getSMSSettings();
+
+  // Check if notifications are enabled
+  if (!settings.smsEnabled) {
+    return { success: false, errorMessage: "Notifications disabled" };
+  }
+
+  // Check if employee has opted in
+  if (!employee.smsOptIn) {
+    return { success: false, errorMessage: "Employee opted out of SMS" };
+  }
+
+  // Initialize SMS provider
+  const initialized = await initializeSMSProvider();
+  if (!initialized) {
+    return { success: false, errorMessage: "SMS provider not initialized" };
+  }
+
+  // Look up position for template
+  const position = await storage.getPosition(shift.positionId);
+  
+  // Try to get template, fall back to hardcoded message
+  const templateMessage = await getRenderedTemplate("shift_interest", {
+    shift,
+    employee,
+    area,
+    position: position ? { title: position.title } : undefined,
+  });
+  const message =
+    templateMessage ||
+    `[ShiftConnect] Interest Received!\nWe got your interest for:\n${formatShiftDetails(shift, area)}\nYou'll be notified if assigned.`;
+
+  const statusCallback = webhookBaseUrl
+    ? `${webhookBaseUrl}/api/webhooks/${settings.smsProvider}/status`
+    : undefined;
+
+  try {
+    // Create message record
+    const messageRecord = await storage.createMessage({
+      employeeId: employee.id,
+      direction: "outbound",
+      content: message,
+      status: "pending",
+      messageType: "shift_interest",
+      relatedShiftId: shift.id,
+      threadId: randomUUID(),
+    });
+
+    // Send SMS using provider abstraction with retry
+    const result = await smsProvider.sendSMSWithRetry(employee.phone, message, statusCallback);
+
+    // Update message with result
+    await storage.updateMessage(messageRecord.id, {
+      providerMessageId: result.messageId || result.providerMessageId || null,
+      smsProvider: settings.smsProvider,
+      status: result.success ? "sent" : "failed",
+      deliveryStatus: result.status || null,
+      errorCode: result.errorCode || null,
+      errorMessage: result.errorMessage || null,
+      segments: result.segments || 1,
+    });
+
+    // Log audit event
+    await logAuditEvent({
+      action: result.success ? "sms_sent" : "sms_failed",
+      actor: null,
+      targetType: "message",
+      targetId: messageRecord.id,
+      targetName: employee.name,
+      details: {
+        type: "shift_interest_confirmation",
+        provider: settings.smsProvider,
+        shiftId: shift.id,
+        messageId: result.messageId,
+        errorCode: result.errorCode,
+      },
+      ipAddress: undefined,
+    });
+
+    return result;
+  } catch (error) {
+    console.error(`Failed to send interest confirmation to ${employee.name}:`, error);
+    return { success: false, errorMessage: "Send failed" };
+  }
+}
+
 export { getSMSSettings, initializeSMSProvider, isQuietHours };

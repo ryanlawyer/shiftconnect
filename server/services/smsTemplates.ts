@@ -152,8 +152,18 @@ export function renderTemplate(template: string, context: TemplateContext): stri
   variables.appUrl = appUrl;
   
   // Add claimLink - direct link to claim shift via web
+  // Include phone number as query parameter for auto-fill
   if (context.shift?.smsCode && appUrl) {
-    variables.claimLink = `${appUrl}/shift/${context.shift.smsCode}`;
+    let claimLink = `${appUrl}/shift/${context.shift.smsCode}`;
+    // Add phone number to URL if employee context is available
+    if (context.employee?.phone) {
+      // Extract just the digits from the phone number for URL safety
+      const phoneDigits = context.employee.phone.replace(/\D/g, "");
+      if (phoneDigits) {
+        claimLink += `?p=${phoneDigits}`;
+      }
+    }
+    variables.claimLink = claimLink;
   } else {
     variables.claimLink = "";
   }

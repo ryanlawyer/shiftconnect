@@ -17,7 +17,7 @@ import { generateDefaultUsername, generateUniqueUsername } from "./utils/usernam
 import { scryptSync, randomBytes } from "crypto";
 import { logAuditEvent, getClientIp } from "./audit";
 import smsRoutes from "./routes/sms";
-import { notifyNewShift, notifyRepostedShift, notifyShiftAssigned, notifyShiftFilledToOthers, notifyShiftUnassigned } from "./services/smsNotifications";
+import { notifyNewShift, notifyRepostedShift, notifyShiftAssigned, notifyShiftFilledToOthers, notifyShiftUnassigned, notifyShiftInterestConfirmation } from "./services/smsNotifications";
 import { scheduleShiftReminder, startReminderChecker, cancelShiftReminder } from "./services/shiftReminderScheduler";
 
 export async function registerRoutes(
@@ -241,6 +241,12 @@ export async function registerRoutes(
         smsCode: smsCode.toUpperCase(),
       },
       ipAddress: clientIp,
+    });
+    
+    // Send SMS confirmation to employee (don't await - don't block response)
+    const area = shift.areaId ? await storage.getArea(shift.areaId) : null;
+    notifyShiftInterestConfirmation(shift, employee, area).catch(err => {
+      console.error("Failed to send shift interest confirmation SMS:", err);
     });
     
     res.json({ success: true, alreadyInterested: false });
