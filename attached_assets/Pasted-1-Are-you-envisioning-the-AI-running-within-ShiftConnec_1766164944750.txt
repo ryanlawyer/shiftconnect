@@ -1,0 +1,25 @@
+1.	Are you envisioning the AI running within ShiftConnect (embedded LLM API calls), or as an external n8n workflow that connects to ShiftConnect's API?
+Answer: embedded LLM API calls for now
+2.	Should the AI still support the existing fixed commands (YES, NO, etc.) as fallback, or fully replace them?
+Answer:  yes it should still support the fixed commands
+Guardrails & Data Access:
+3. When an employee asks "what shifts are available?" - should they only see shifts for their assigned areas, or shifts they're qualified for (by position/training), or both?
+Answer:  They will see the shifts they have the ability and clearance to be assigned
+4.	For supervisors - should they see all employees & shifts across the entire organization, or only within their assigned areas?
+Answer:  only their assigned areas with a optional toggle in roles to allow them the entire agency
+5.	What should happen if someone tries to ask about another employee? Silent refusal, polite redirect, or a logged security event?
+Answer:  Polite redirect and a logged security event for tracking 
+Conversation Scope:
+6. What topics beyond shift management would be acceptable? (e.g., "When's my next shift?", "Who's working Friday?" for supervisors, schedule questions)
+Answer:  yes those examples are acceptable as long as they don’t violate access rules
+7.	Should the AI handle things like time-off requests or just shift pickup/notification?
+Answer:  The AI can submit a time-off request but never approve, PTO component has not been built but it planned for future.  Primarily the AI agent will handle the shift pickup/notification
+RBAC for AI:
+8. For the AI-specific RBAC tab - are you thinking of permissions like:
+•	"Can view other employees' schedules"
+•	"Can access shift history"
+•	"Can see contact information"
+•	Something else?
+Answer:  yes those permissions look right with consideration to area and home access silos
+9.	Should these AI permissions be separate from the existing role permissions, or extend them with AI-specific toggles per role?
+Answer:  Extend the role permission to include the AI-specific toggles in a standout section

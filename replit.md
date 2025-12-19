@@ -199,3 +199,180 @@ if (typeof requestData.fieldName !== "boolean") {
 2. Validate typeof to reject strings like "true" or numbers like 1
 3. Frontend permission checks are for UX only; server enforces
 4. Log unauthorized attempts for monitoring
+
+---
+
+## AI SMS Agent Implementation Notes (Future Feature)
+
+### Overview
+Replace fixed SMS command parsing with an AI agent that understands natural language while maintaining strict security guardrails. The AI will be embedded via LLM API calls (not external n8n). Fixed commands (YES, NO, SHIFTS, etc.) will remain as fallback.
+
+### Architecture Decision Record
+
+**ADR-001: AI SMS Agent with RBAC-Aware Guardrails**
+- **Status**: Planned
+- **Date**: December 2024
+- **Decision**: Build an embedded AI agent for SMS handling with context-aware data filtering
+
+### Core Components to Build
+
+#### 1. AI RBAC Schema Extension (`shared/permissions.ts`)
+New permissions to add under a dedicated "AI Access" section:
+```typescript
+// AI-specific permissions
+AI_VIEW_OTHER_SCHEDULES: "ai:view_other_schedules",   // Can query other employees' schedules
+AI_VIEW_SHIFT_HISTORY: "ai:view_shift_history",       // Can access historical shift data
+AI_VIEW_CONTACT_INFO: "ai:view_contact_info",         // Can see employee contact details
+AI_ALL_AREAS: "ai:all_areas",                         // Can query across all areas (bypass area filter)
+AI_SUBMIT_PTO: "ai:submit_pto",                       // Can submit PTO requests (future)
+```
+
+Default permission assignments:
+- **Admin**: All AI permissions
+- **Supervisor**: `ai:view_other_schedules`, `ai:view_shift_history` (area-restricted unless `ai:all_areas` granted)
+- **Employee**: None (can only query own data and available shifts)
+
+#### 2. AI Context Builder Service (`server/services/ai/contextBuilder.ts`)
+Assembles user context for each AI request:
+```typescript
+interface AIUserContext {
+  employeeId: string;
+  employeeName: string;
+  role: string;
+  permissions: string[];           // All permissions including AI-specific
+  assignedAreaIds: string[];       // Areas this user can access
+  qualifiedPositionIds: string[];  // Positions user is qualified for
+  canAccessAllAreas: boolean;      // Derived from ai:all_areas permission
+}
+```
+
+#### 3. Data Filtering Layer (`server/services/ai/dataFilter.ts`)
+Permission-aware query filters:
+- `getAccessibleShifts(context)` - Returns only shifts in user's areas + qualified positions
+- `getAccessibleEmployees(context)` - Returns employees based on permission level
+- `getAccessibleSchedules(context)` - Filters schedule data by permissions
+
+Security rules:
+- Employees: Own data only + available shifts they qualify for
+- Supervisors: All data within assigned areas (or all areas if toggled)
+- Admins: All data
+
+#### 4. AI SMS Handler (`server/services/ai/smsHandler.ts`)
+Main processing flow:
+```
+1. Receive SMS -> Identify employee by phone
+2. Build AIUserContext from employee record
+3. Attempt AI intent classification
+   - If clear intent -> Process with guardrails
+   - If unclear/ambiguous -> Fall back to fixed command parser
+4. Filter data access based on permissions
+5. Generate response (or block + log if unauthorized)
+6. Send SMS response
+```
+
+System prompt structure:
+```
+You are ShiftConnect Assistant. You help employees manage shifts.
+
+USER CONTEXT:
+- Name: {employeeName}
+- Role: {role}
+- Areas: {areaNames}
+
+STRICT RULES:
+1. Only discuss ShiftConnect topics (shifts, schedules, availability)
+2. User can ONLY see shifts in these areas: {allowedAreas}
+3. User can ONLY see their own schedule unless they have supervisor access
+4. NEVER reveal information about other employees unless explicitly permitted
+5. If asked about restricted data, politely redirect to available options
+
+AVAILABLE ACTIONS:
+- Express interest in shifts (YES)
+- Decline shifts (NO)
+- Check shift status
+- View available shifts
+- Submit PTO request (cannot approve)
+```
+
+#### 5. Security Event Logging
+New audit event types:
+- `ai_access_blocked` - Attempted unauthorized data access
+- `ai_topic_redirect` - Off-topic conversation redirected
+- `ai_intent_fallback` - Fell back to fixed commands
+
+Log structure:
+```typescript
+{
+  action: "ai_access_blocked",
+  actor: employeeId,
+  targetType: "employee" | "shift" | "schedule",
+  details: {
+    attemptedQuery: string,
+    deniedPermission: string,
+    redirectMessage: string
+  }
+}
+```
+
+#### 6. Conversation Context Manager (`server/services/ai/conversationContext.ts`)
+Track multi-turn conversations:
+```typescript
+interface ConversationContext {
+  employeeId: string;
+  threadId: string;
+  lastMessageAt: Date;
+  recentMessages: Array<{role: 'user'|'assistant', content: string}>;
+  pendingAction?: {type: string, data: any};  // e.g., confirming a shift
+}
+```
+- TTL: 30 minutes of inactivity
+- Max history: Last 5 exchanges
+
+#### 7. UI: AI Access Section in Role Editor
+Location: Settings > Access Roles > Edit Role
+New section "AI Chat Permissions" with toggles:
+- [ ] Can view other employees' schedules
+- [ ] Can access shift history
+- [ ] Can see employee contact info
+- [ ] Can access all areas (bypasses area restrictions)
+- [ ] Can submit PTO requests
+
+### Integration Points
+
+**Existing code to modify:**
+- `server/routes/sms.ts` - Route inbound SMS through AI handler first
+- `shared/permissions.ts` - Add AI permission constants
+- `client/src/pages/settings-roles.tsx` - Add AI permissions UI section
+- `server/storage.ts` - Add methods for AI-filtered queries
+
+**New files to create:**
+- `server/services/ai/index.ts` - AI service entry point
+- `server/services/ai/contextBuilder.ts`
+- `server/services/ai/dataFilter.ts`
+- `server/services/ai/smsHandler.ts`
+- `server/services/ai/conversationContext.ts`
+- `server/services/ai/prompts.ts` - System prompt templates
+
+### LLM Integration
+- **Provider**: OpenAI API (GPT-4 or GPT-3.5-turbo)
+- **Secret**: `OPENAI_API_KEY` environment variable
+- **Fallback**: If LLM fails, use existing fixed command parser
+
+### Testing Scenarios
+1. Employee asks "what shifts are available?" -> Shows only their area/qualification matches
+2. Employee asks "who's working Friday?" -> Polite redirect + security log
+3. Supervisor asks "who's working Friday?" -> Shows their area's schedule
+4. Admin asks about any employee -> Full access
+5. Anyone asks about weather -> Polite redirect to shift topics
+6. Garbled message -> Falls back to HELP response
+
+### Implementation Task List
+1. Design AI RBAC schema extension - Add AI-specific permissions to shared/permissions.ts
+2. Create AI context builder service - Build user context assembly for AI requests
+3. Implement data filtering layer - Create permission-aware query filters
+4. Build AI SMS handler service - Create LLM integration with guardrails
+5. Implement security event logging - Log blocked access attempts to audit log
+6. Add fallback to fixed commands - Integrate AI handler with existing command parser
+7. Create AI Access section in Role Editor UI - Add toggle controls for AI permissions
+8. Build conversation context manager - Track multi-turn conversation state
+9. Integration testing & guardrail validation - Test access controls and security logging
