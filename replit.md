@@ -37,9 +37,11 @@ Preferred communication style: Simple, everyday language.
 - **Shared Types**: Type safety across frontend/backend via `shared/schema.ts`
 - **Storage Interface**: `IStorage` abstracting data access
 - **Path Aliases**: `@/` for client, `@shared/` for shared directory
+- **Real-Time Updates**: WebSocket on `/ws` path broadcasts shift changes; frontend uses `useShiftWebSocket()` hook to auto-refresh shift cards
 
 ### Feature Specifications
 - **Phone Number Handling**: Stores in E.164 format, displays as (555) 123-4567.
+- **Date Filtering**: Shifts API and SMS commands (STATUS, WITHDRAW) only show current/future shifts; uses SQL CURRENT_DATE for timezone safety in PostgreSQL.
 - **SMS Agent (Future)**: AI-powered SMS agent using LLMs for natural language understanding, integrated with Role-Based Access Control (RBAC) aware guardrails. This includes an AI RBAC schema extension, context builder, data filtering layer, and conversation context management. Fallback to fixed commands if AI intent is unclear.
 - **Security Patterns**: Server-side permission validation for sensitive fields, logging of unauthorized access attempts.
 

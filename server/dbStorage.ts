@@ -415,8 +415,9 @@ export class DatabaseStorage implements IStorage {
     if (includePast) {
       return db.select().from(shifts).orderBy(desc(shifts.createdAt));
     }
-    // Filter to only show current and future shifts using SQL CURRENT_DATE for timezone safety
-    return db.select().from(shifts).where(gte(shifts.date, sql`CURRENT_DATE`)).orderBy(desc(shifts.createdAt));
+    // Filter to only show current and future shifts
+    // Cast CURRENT_DATE to text since shifts.date is stored as text in YYYY-MM-DD format
+    return db.select().from(shifts).where(gte(shifts.date, sql`CURRENT_DATE::text`)).orderBy(desc(shifts.createdAt));
   }
 
   async getShift(id: string): Promise<Shift | undefined> {
