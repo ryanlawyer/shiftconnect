@@ -222,9 +222,12 @@ export async function notifyNewShift(
     area,
     position: position ? { title: position.title } : undefined,
   });
+  const appUrl = process.env.REPLIT_DEV_DOMAIN 
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : process.env.APP_URL || "";
   const message =
     templateMessage ||
-    `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nCode: ${shift.smsCode}\nReply YES ${shift.smsCode} to express interest.`;
+    `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nCode: ${shift.smsCode}\n\nTap to claim: ${appUrl}/shift/${shift.smsCode}\n\nOr reply YES ${shift.smsCode}`;
 
   // Build status callback URL based on provider
   const statusCallback = webhookBaseUrl

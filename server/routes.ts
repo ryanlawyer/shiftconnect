@@ -100,6 +100,152 @@ export async function registerRoutes(
     res.send(content);
   });
 
+  // Rate limiting for public endpoints - simple in-memory store
+  const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+  const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+
+  const checkRateLimit = (ip: string): boolean => {
+    const now = Date.now();
+    const record = rateLimitStore.get(ip);
+    
+    if (!record || now > record.resetAt) {
+      rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      return true;
+    }
+    
+    if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+      return false;
+    }
+    
+    record.count++;
+    return true;
+  };
+
+  // Clean up old rate limit entries periodically
+  setInterval(() => {
+    const now = Date.now();
+    const entries = Array.from(rateLimitStore.entries());
+    for (const [ip, record] of entries) {
+      if (now > record.resetAt) {
+        rateLimitStore.delete(ip);
+      }
+    }
+  }, 5 * 60 * 1000); // Clean up every 5 minutes
+
+  // Public Shift Interest Endpoints - No auth required
+  // GET /public/shift/:smsCode - Get shift details by SMS code
+  app.get("/public/shift/:smsCode", async (req, res) => {
+    const { smsCode } = req.params;
+    
+    const shift = await storage.getShiftBySmsCode(smsCode.toUpperCase());
+    if (!shift) {
+      return res.status(404).json({ error: "Shift not found. This code may be invalid or expired." });
+    }
+    
+    const area = shift.areaId ? await storage.getArea(shift.areaId) : null;
+    const position = shift.positionId ? await storage.getPosition(shift.positionId) : null;
+    
+    res.json({
+      id: shift.id,
+      date: shift.date,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      location: shift.location,
+      areaName: area?.name,
+      positionTitle: position?.title,
+      bonusAmount: shift.bonusAmount,
+      status: shift.status,
+      smsCode: shift.smsCode,
+    });
+  });
+
+  // POST /public/shift/:smsCode/interest - Express interest via web link
+  app.post("/public/shift/:smsCode/interest", async (req, res) => {
+    const clientIp = getClientIp(req) || "unknown";
+    
+    // Check rate limit
+    if (!checkRateLimit(clientIp)) {
+      return res.status(429).json({ error: "Too many requests. Please wait a moment and try again." });
+    }
+
+    const { smsCode } = req.params;
+    const { phone } = req.body;
+    
+    if (!phone) {
+      return res.status(400).json({ error: "Phone number is required" });
+    }
+    
+    // Find shift by SMS code first (before phone lookup to avoid timing attacks)
+    const shift = await storage.getShiftBySmsCode(smsCode.toUpperCase());
+    if (!shift) {
+      return res.status(404).json({ error: "Shift not found. This code may be invalid or expired." });
+    }
+    
+    if (shift.status !== "available") {
+      return res.status(400).json({ error: "This shift is no longer available." });
+    }
+    
+    // Normalize phone number for lookup
+    const normalizedPhone = phone.replace(/\D/g, "");
+    
+    // Reject empty or too-short phone numbers to prevent bypass attacks
+    if (normalizedPhone.length < 10) {
+      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+      return res.status(400).json({ error: "Unable to verify your identity. Please check your phone number or contact your supervisor." });
+    }
+    
+    // Use last 10 digits for comparison (handles various country code formats)
+    const last10Digits = normalizedPhone.slice(-10);
+    
+    // Find employee by phone number (exact match on last 10 digits)
+    const employees = await storage.getEmployees();
+    const employee = employees.find(e => {
+      const empPhone = e.phone.replace(/\D/g, "");
+      const empLast10 = empPhone.slice(-10);
+      // Require at least 10 digits and exact match on last 10
+      return empLast10.length === 10 && last10Digits === empLast10;
+    });
+    
+    // Use generic error message to prevent phone enumeration
+    // Don't reveal whether phone exists or account is inactive
+    if (!employee || employee.status !== "active") {
+      // Add small random delay to prevent timing attacks
+      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+      return res.status(400).json({ error: "Unable to verify your identity. Please check your phone number or contact your supervisor." });
+    }
+    
+    // Check if already interested
+    const existingInterest = await storage.getShiftInterestByEmployeeAndShift(employee.id, shift.id);
+    if (existingInterest) {
+      return res.json({ success: true, alreadyInterested: true });
+    }
+    
+    // Create interest record
+    await storage.createShiftInterest({
+      shiftId: shift.id,
+      employeeId: employee.id,
+    });
+    
+    // Log audit event
+    await logAuditEvent({
+      action: "shift_interest_via_sms",
+      actor: null,
+      targetType: "shift",
+      targetId: shift.id,
+      targetName: `${shift.date} ${shift.startTime}-${shift.endTime}`,
+      details: { 
+        employeeId: employee.id, 
+        employeeName: employee.name, 
+        method: "web_link",
+        smsCode: smsCode.toUpperCase(),
+      },
+      ipAddress: clientIp,
+    });
+    
+    res.json({ success: true, alreadyInterested: false });
+  });
+
   // Protect all API routes defined here
   app.use("/api", requireAuth);
 

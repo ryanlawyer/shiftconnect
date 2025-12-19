@@ -14,6 +14,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
+import ShiftInterest from "@/pages/ShiftInterest";
 import Dashboard from "@/pages/Dashboard";
 import EmployeeHome from "@/pages/EmployeeHome";
 import Shifts from "@/pages/Shifts";
@@ -134,6 +135,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/auth" component={AuthPage} />
+      <Route path="/shift/:smsCode" component={ShiftInterest} />
       <Route component={ProtectedApp} />
     </Switch>
   );
