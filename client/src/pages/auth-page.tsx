@@ -22,7 +22,7 @@ import {
     FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { ShieldCheck } from "lucide-react";
+import brandingIcon from "@assets/2025-12-19_09-22-46_2_1766159480175.png";
 
 export default function AuthPage() {
     const { user, loginMutation, registerMutation } = useAuth();
@@ -55,7 +55,7 @@ export default function AuthPage() {
             <div className="flex flex-col justify-center items-center p-8 bg-background">
                 <div className="w-full max-w-md space-y-8">
                     <div className="flex items-center gap-3 mb-8">
-                        <ShieldCheck className="w-10 h-10 text-primary" />
+                        <img src={brandingIcon} alt="ShiftConnect" className="w-12 h-12 rounded-md" />
                         <h1 className="text-3xl font-bold tracking-tight">Shift Connect</h1>
                     </div>
 

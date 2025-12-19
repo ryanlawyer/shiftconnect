@@ -23,9 +23,9 @@ import {
   BarChart3,
   Settings,
   LogOut,
-  Building2,
   Shield,
 } from "lucide-react";
+import brandingIcon from "@assets/2025-12-19_09-22-46_2_1766159480175.png";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermissions, PERMISSIONS } from "@/hooks/use-permissions";
 
@@ -92,9 +92,7 @@ export function AppSidebar({
     <Sidebar data-testid="app-sidebar">
       <SidebarHeader className="border-b p-4">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
-            <Building2 className="h-5 w-5 text-primary-foreground" />
-          </div>
+          <img src={brandingIcon} alt="ShiftConnect" className="h-8 w-8 rounded-md" />
           <div>
             <h2 className="font-semibold text-sm">ShiftConnect</h2>
             <p className="text-xs text-muted-foreground">Shift Management</p>
