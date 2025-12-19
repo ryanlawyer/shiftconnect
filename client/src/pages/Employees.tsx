@@ -105,6 +105,10 @@ export default function Employees() {
         areaIds,
         password: password || undefined 
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to create employee");
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -113,19 +117,24 @@ export default function Employees() {
       resetForm();
       toast({ title: "Employee created successfully" });
     },
-    onError: () => {
-      toast({ title: "Failed to create employee", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Failed to create employee", description: error.message, variant: "destructive" });
     },
   });
 
   const updateEmployeeMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: EmployeeFormData }) => {
       const { areaIds, password, ...employeeData } = data;
-      await apiRequest("PATCH", `/api/employees/${id}`, { 
+      const response = await apiRequest("PATCH", `/api/employees/${id}`, { 
         ...employeeData, 
         areaIds,
         password: password || undefined
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to update employee");
+      }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
@@ -133,24 +142,28 @@ export default function Employees() {
       resetForm();
       toast({ title: "Employee updated successfully" });
     },
-    onError: () => {
-      toast({ title: "Failed to update employee", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Failed to update employee", description: error.message, variant: "destructive" });
     },
   });
 
   const deleteEmployeeMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/employees/${id}`);
+      const response = await apiRequest("DELETE", `/api/employees/${id}`);
+      if (!response.ok && response.status !== 204) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to archive employee");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       setEditDialogOpen(false);
       setDeleteConfirmOpen(false);
       resetForm();
-      toast({ title: "Employee deleted successfully" });
+      toast({ title: "Employee archived successfully" });
     },
-    onError: () => {
-      toast({ title: "Failed to delete employee", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Failed to archive employee", description: error.message, variant: "destructive" });
     },
   });
 
