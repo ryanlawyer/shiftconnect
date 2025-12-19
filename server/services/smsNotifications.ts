@@ -224,7 +224,7 @@ export async function notifyNewShift(
   });
   const message =
     templateMessage ||
-    `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nLog in to claim this shift.`;
+    `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nCode: ${shift.smsCode}\nReply YES ${shift.smsCode} to express interest.`;
 
   // Build status callback URL based on provider
   const statusCallback = webhookBaseUrl

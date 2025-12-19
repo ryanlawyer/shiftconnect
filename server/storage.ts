@@ -679,7 +679,7 @@ export class MemStorage implements IStorage {
         name: "New Shift Available",
         description: "Notification sent to eligible employees when a new shift is posted. Includes SMS code and reply instructions.",
         category: "shift_notification",
-        content: "[ShiftConnect] New Shift Available!\n\nDate: {{date}}\nTime: {{startTime}} - {{endTime}}\nLocation: {{location}}{{area}}\nCode: {{smsCode}}\n\nReply YES to express interest or NO to pass.\n\nReply STOP to unsubscribe.",
+        content: "[ShiftConnect] New Shift Available!\n\nDate: {{date}}\nTime: {{startTime}} - {{endTime}}\nLocation: {{location}}{{area}}\nCode: {{smsCode}}\n\nReply YES {{smsCode}} to express interest or NO to pass.\n\nReply STOP to unsubscribe.",
         isSystem: true,
       },
       {

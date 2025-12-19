@@ -104,7 +104,7 @@ export class DatabaseStorage implements IStorage {
           name: "New Shift Available",
           description: "Sent when a new open shift is posted",
           category: "shift_notification",
-          content: "ShiftConnect: A new {{shiftType}} shift is available on {{date}} from {{startTime}} to {{endTime}} at {{location}}. Reply YES to express interest or view details at {{appUrl}}.",
+          content: "ShiftConnect: {{shiftType}} shift available on {{date}} from {{startTime}} to {{endTime}} at {{location}}{{area}}. Code: {{smsCode}}. Reply YES {{smsCode}} to express interest.",
           isSystem: true,
           isActive: true,
         },
