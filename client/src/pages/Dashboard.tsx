@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useShiftWebSocket } from "@/hooks/use-websocket";
 import { Button } from "@/components/ui/button";
 import { DashboardStats, type StatCardProps } from "@/components/DashboardStats";
 import { ShiftCard } from "@/components/ShiftCard";
@@ -38,6 +39,9 @@ export default function Dashboard() {
   const [modalOpen, setModalOpen] = useState(false);
   const [notifyingShiftId, setNotifyingShiftId] = useState<string | null>(null);
   const [, setLocation] = useLocation();
+
+  // Subscribe to real-time shift updates
+  useShiftWebSocket();
 
   // Fetch organization settings for urgency threshold
   const { data: settings = [] } = useQuery<OrganizationSetting[]>({

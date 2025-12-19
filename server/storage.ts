@@ -68,7 +68,7 @@ export interface IStorage {
   setEmployeeAreas(employeeId: string, areaIds: string[]): Promise<void>;
 
   // Shifts
-  getShifts(): Promise<Shift[]>;
+  getShifts(includePast?: boolean): Promise<Shift[]>;
   getShift(id: string): Promise<Shift | undefined>;
   getShiftBySmsCode(smsCode: string): Promise<Shift | undefined>;
   getShiftsByArea(areaId: string): Promise<Shift[]>;
@@ -1046,8 +1046,15 @@ export class MemStorage implements IStorage {
   }
 
   // Shifts
-  async getShifts(): Promise<Shift[]> {
-    return Array.from(this.shifts.values()).sort((a, b) =>
+  async getShifts(includePast: boolean = false): Promise<Shift[]> {
+    let result = Array.from(this.shifts.values());
+    if (!includePast) {
+      // Use local date for timezone-safe comparison
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
+      result = result.filter(s => s.date >= today);
+    }
+    return result.sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }

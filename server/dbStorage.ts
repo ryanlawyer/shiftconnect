@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, inArray, desc, sql } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, gte } from "drizzle-orm";
 import {
   type User, type InsertUser,
   type Role, type InsertRole,
@@ -411,8 +411,12 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getShifts(): Promise<Shift[]> {
-    return db.select().from(shifts).orderBy(desc(shifts.createdAt));
+  async getShifts(includePast: boolean = false): Promise<Shift[]> {
+    if (includePast) {
+      return db.select().from(shifts).orderBy(desc(shifts.createdAt));
+    }
+    // Filter to only show current and future shifts using SQL CURRENT_DATE for timezone safety
+    return db.select().from(shifts).where(gte(shifts.date, sql`CURRENT_DATE`)).orderBy(desc(shifts.createdAt));
   }
 
   async getShift(id: string): Promise<Shift | undefined> {

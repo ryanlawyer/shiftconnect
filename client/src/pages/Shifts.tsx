@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useShiftWebSocket } from "@/hooks/use-websocket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -56,6 +57,9 @@ export default function Shifts() {
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+  // Subscribe to real-time shift updates
+  useShiftWebSocket();
 
   // Fetch shifts and areas data
   const { data: shifts = [], isLoading: loadingShifts } = useQuery<ShiftWithDetails[]>({

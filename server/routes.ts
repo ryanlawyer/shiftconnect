@@ -19,6 +19,7 @@ import { logAuditEvent, getClientIp } from "./audit";
 import smsRoutes from "./routes/sms";
 import { notifyNewShift, notifyRepostedShift, notifyShiftAssigned, notifyShiftFilledToOthers, notifyShiftUnassigned, notifyShiftInterestConfirmation } from "./services/smsNotifications";
 import { scheduleShiftReminder, startReminderChecker, cancelShiftReminder } from "./services/shiftReminderScheduler";
+import { setupWebSocket, broadcastShiftUpdate } from "./websocket";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -226,6 +227,9 @@ export async function registerRoutes(
       shiftId: shift.id,
       employeeId: employee.id,
     });
+    
+    // Broadcast real-time update
+    broadcastShiftUpdate(shift.id, "interest_added");
     
     // Log audit event
     await logAuditEvent({
@@ -1207,6 +1211,10 @@ export async function registerRoutes(
     });
     if (!parsed.success) return res.status(400).json({ error: parsed.error });
     const interest = await storage.createShiftInterest(parsed.data);
+    
+    // Broadcast real-time update
+    broadcastShiftUpdate(req.params.id, "interest_added");
+    
     res.status(201).json(interest);
   });
 
@@ -1653,6 +1661,9 @@ export async function registerRoutes(
     
     res.json({ success: deleted });
   });
+
+  // Setup WebSocket for real-time updates
+  setupWebSocket(httpServer);
 
   return httpServer;
 }

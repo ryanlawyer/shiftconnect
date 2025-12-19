@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import { processShiftReminders, getScheduledReminderCount } from "../services/shiftReminderScheduler";
 import { templateVariables, validateTemplate, previewTemplate, type TemplateCategory } from "../services/smsTemplates";
 import { insertSmsTemplateSchema, type Employee, type Shift } from "@shared/schema";
+import { broadcastShiftUpdate } from "../websocket";
 
 // ============================================================
 // Message Deduplication Cache
@@ -206,18 +207,21 @@ async function handleInterestNo(
  * Handle STATUS command - show assigned shifts and pending interests
  */
 async function handleStatus(employee: Employee): Promise<string> {
-  const shifts = await storage.getShifts();
+  const shifts = await storage.getShifts(); // Already filtered to current/future
+  // Use local date for timezone-safe comparison
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
 
-  // Get assigned shifts
+  // Get assigned shifts (only current/future)
   const assignedShifts = shifts
-    .filter(s => s.assignedEmployeeId === employee.id && s.status === 'claimed')
+    .filter(s => s.assignedEmployeeId === employee.id && s.status === 'claimed' && s.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 5);
 
-  // Get pending interests
+  // Get pending interests (only for current/future shifts)
   const interests = await storage.getEmployeeShiftInterests(employee.id);
   const pendingInterests = interests
-    .filter(i => i.shift && i.shift.status === 'available')
+    .filter(i => i.shift && i.shift.status === 'available' && i.shift.date >= today)
     .slice(0, 5);
 
   let response = "[ShiftConnect] Your Status:\n\n";
@@ -320,10 +324,13 @@ async function handleConfirm(employee: Employee, ipAddress?: string): Promise<st
  * WITHDRAW [code] = withdraw interest from specific shift
  */
 async function handleWithdraw(employee: Employee, shiftCode?: string, ipAddress?: string): Promise<string> {
-  // Get all pending interests for this employee
+  // Get all pending interests for this employee (only current/future shifts)
+  // Use local date for timezone-safe comparison
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().split('T')[0];
   const interests = await storage.getEmployeeShiftInterests(employee.id);
   const pendingInterests = interests
-    .filter(i => i.shift && i.shift.status === 'available')
+    .filter(i => i.shift && i.shift.status === 'available' && i.shift.date >= today)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   if (pendingInterests.length === 0) {
@@ -355,6 +362,9 @@ async function handleWithdraw(employee: Employee, shiftCode?: string, ipAddress?
   await storage.deleteShiftInterest(targetInterest.shiftId, targetInterest.employeeId);
   const shift = targetInterest.shift;
   const dateFormatted = formatDateForSms(shift.date);
+
+  // Broadcast real-time update
+  broadcastShiftUpdate(shift.id, "interest_removed");
 
   await logAuditEvent({
     action: "shift_interest_withdrawn_via_sms",
