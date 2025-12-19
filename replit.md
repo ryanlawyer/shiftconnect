@@ -42,7 +42,10 @@ Preferred communication style: Simple, everyday language.
 ### Feature Specifications
 - **Phone Number Handling**: Stores in E.164 format, displays as (555) 123-4567.
 - **Date Filtering**: Shifts API and SMS commands (STATUS, WITHDRAW) only show current/future shifts by default; uses SQL CURRENT_DATE for timezone safety in PostgreSQL. Management web interface can view expired shifts via status filter.
-- **Shift Sorting**: Management interface supports sorting by Newest First, Oldest First, Date (Earliest), Date (Latest).
+- **Expired Status**: Computed dynamically based on shift date and end time - a shift is expired when its end time has passed and it's still available.
+- **Shift Sorting**: Default sort is "Soonest Coverage" (by shift date). Options: Soonest Coverage, Latest Coverage, Recently Posted, Oldest Posted. Preferences saved to localStorage.
+- **Time-Based Grouping**: Shifts grouped by Today, Tomorrow, This Week, Next Week, Later, or Past for easy prioritization.
+- **Urgency Indicators**: Visual ring highlights on shift cards: red ring for shifts within 24 hours, yellow ring for 24-48 hours.
 - **SMS Agent (Future)**: AI-powered SMS agent using LLMs for natural language understanding, integrated with Role-Based Access Control (RBAC) aware guardrails. This includes an AI RBAC schema extension, context builder, data filtering layer, and conversation context management. Fallback to fixed commands if AI intent is unclear.
 - **Security Patterns**: Server-side permission validation for sensitive fields, logging of unauthorized access attempts.
 
