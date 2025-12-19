@@ -692,6 +692,10 @@ export async function registerRoutes(
     // Allow management interface to request all shifts including past/expired ones
     const includePast = req.query.includePast === "true";
     const shifts = await storage.getShifts(includePast);
+    
+    // Get current datetime for expiration comparison
+    const now = new Date();
+    
     // Include area info, interest count, and assigned employee
     const shiftsWithInfo = await Promise.all(
       shifts.map(async (shift) => {
@@ -701,8 +705,20 @@ export async function registerRoutes(
           ? await storage.getEmployee(shift.assignedEmployeeId)
           : null;
         const position = await storage.getPosition(shift.positionId);
+        
+        // Compute expired status dynamically based on shift date and end time
+        // A shift is expired if its end datetime has passed and it's still "available" (not claimed)
+        let computedStatus = shift.status;
+        if (shift.status === "available") {
+          const shiftEndDateTime = new Date(`${shift.date}T${shift.endTime}:00`);
+          if (shiftEndDateTime < now) {
+            computedStatus = "expired";
+          }
+        }
+        
         return {
           ...shift,
+          status: computedStatus,
           area,
           position: position?.title || "Unknown Position",
           interestedCount: interests.length,

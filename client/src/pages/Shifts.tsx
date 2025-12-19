@@ -25,11 +25,53 @@ import type { InterestedEmployee } from "@/components/ShiftDetailModal";
 
 const statuses = ["All Status", "Available", "Claimed", "Expired"];
 const sortOptions = [
-  { value: "newest", label: "Newest First" },
-  { value: "oldest", label: "Oldest First" },
-  { value: "date-asc", label: "Date (Earliest)" },
-  { value: "date-desc", label: "Date (Latest)" },
+  { value: "date-asc", label: "Soonest Coverage" },
+  { value: "date-desc", label: "Latest Coverage" },
+  { value: "newest", label: "Recently Posted" },
+  { value: "oldest", label: "Oldest Posted" },
 ];
+
+// Helper to get/set localStorage preferences
+const FILTER_STORAGE_KEY = "shifts-filter-prefs";
+function getStoredPrefs() {
+  try {
+    const stored = localStorage.getItem(FILTER_STORAGE_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return null;
+}
+function setStoredPrefs(prefs: { areaFilter?: string; statusFilter?: string; sortBy?: string }) {
+  try {
+    localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(prefs));
+  } catch {}
+}
+
+// Helper to determine urgency level based on shift date
+function getUrgencyLevel(shiftDate: string): "urgent" | "soon" | "normal" {
+  const now = new Date();
+  const shiftDateTime = new Date(shiftDate + "T00:00:00");
+  const hoursUntilShift = (shiftDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+  
+  if (hoursUntilShift <= 24) return "urgent";
+  if (hoursUntilShift <= 48) return "soon";
+  return "normal";
+}
+
+// Helper to group shifts by time period
+function getTimeGroup(shiftDate: string): string {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const shiftDateTime = new Date(shiftDate + "T00:00:00");
+  
+  const daysDiff = Math.floor((shiftDateTime.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysDiff < 0) return "Past";
+  if (daysDiff === 0) return "Today";
+  if (daysDiff === 1) return "Tomorrow";
+  if (daysDiff <= 7) return "This Week";
+  if (daysDiff <= 14) return "Next Week";
+  return "Later";
+}
 
 // Type for the detailed shift response from /api/shifts/:id
 interface ShiftDetailResponse {
@@ -55,15 +97,33 @@ interface ShiftDetailResponse {
 export default function Shifts() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [areaFilter, setAreaFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("All Status");
-  const [sortBy, setSortBy] = useState("newest");
+  
+  // Load stored preferences or use defaults
+  const storedPrefs = getStoredPrefs();
+  const [areaFilter, setAreaFilter] = useState(storedPrefs?.areaFilter || "all");
+  const [statusFilter, setStatusFilter] = useState(storedPrefs?.statusFilter || "All Status");
+  const [sortBy, setSortBy] = useState(storedPrefs?.sortBy || "date-asc");
+  
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedShiftIds, setSelectedShiftIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  
+  // Save preferences to localStorage when they change
+  const handleAreaFilterChange = (value: string) => {
+    setAreaFilter(value);
+    setStoredPrefs({ areaFilter: value, statusFilter, sortBy });
+  };
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setStoredPrefs({ areaFilter, statusFilter: value, sortBy });
+  };
+  const handleSortChange = (value: string) => {
+    setSortBy(value);
+    setStoredPrefs({ areaFilter, statusFilter, sortBy: value });
+  };
 
   // Subscribe to real-time shift updates
   useShiftWebSocket();
@@ -459,7 +519,14 @@ export default function Shifts() {
     <div className="p-6 space-y-6" data-testid="page-shifts">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">Open Shifts</h1>
+          <h1 className="text-3xl font-semibold">
+            Open Shifts
+            {filteredShifts.length > 0 && (
+              <span className="ml-2 text-lg font-normal text-muted-foreground">
+                ({filteredShifts.length})
+              </span>
+            )}
+          </h1>
           <p className="text-muted-foreground">Browse and claim available shifts</p>
         </div>
         <div className="flex items-center gap-2">
@@ -506,7 +573,7 @@ export default function Shifts() {
             data-testid="input-search-shifts"
           />
         </div>
-        <Select value={areaFilter} onValueChange={setAreaFilter}>
+        <Select value={areaFilter} onValueChange={handleAreaFilterChange}>
           <SelectTrigger className="w-[200px]" data-testid="select-area-filter">
             <Filter className="h-4 w-4 mr-2" />
             <SelectValue />
@@ -518,7 +585,7 @@ export default function Shifts() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
           <SelectTrigger className="w-[150px]" data-testid="select-status-filter">
             <SelectValue />
           </SelectTrigger>
@@ -528,8 +595,8 @@ export default function Shifts() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[160px]" data-testid="select-sort-order">
+        <Select value={sortBy} onValueChange={handleSortChange}>
+          <SelectTrigger className="w-[180px]" data-testid="select-sort-order">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -580,23 +647,62 @@ export default function Shifts() {
       )}
 
       {filteredShifts.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredShifts.map((shift) => (
-            <ShiftCard
-              key={shift.id}
-              {...shift}
-              onShowInterest={handleShowInterest}
-              onViewDetails={handleViewDetails}
-              onNotify={handleNotify}
-              onClone={handleClone}
-              onQuickAssign={handleQuickAssign}
-              isAdmin={true}
-              isNotifying={notifyingShiftId === shift.id}
-              showCheckbox={true}
-              isSelected={selectedShiftIds.has(shift.id)}
-              onSelectionChange={handleSelectionChange}
-            />
-          ))}
+        <div className="space-y-6">
+          {(() => {
+            // Group shifts by time period
+            const groups: Record<string, typeof filteredShifts> = {};
+            const groupOrder = ["Today", "Tomorrow", "This Week", "Next Week", "Later", "Past"];
+            
+            filteredShifts.forEach((shift) => {
+              const group = getTimeGroup(shift.date);
+              if (!groups[group]) groups[group] = [];
+              groups[group].push(shift);
+            });
+            
+            return groupOrder
+              .filter((group) => groups[group]?.length > 0)
+              .map((group) => (
+                <div key={group} className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-medium">{group}</h2>
+                    <span className="text-sm text-muted-foreground">
+                      ({groups[group].length} {groups[group].length === 1 ? "shift" : "shifts"})
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {groups[group].map((shift) => {
+                      const urgency = getUrgencyLevel(shift.date);
+                      return (
+                        <div
+                          key={shift.id}
+                          className={
+                            urgency === "urgent"
+                              ? "ring-2 ring-red-500/50 rounded-lg"
+                              : urgency === "soon"
+                              ? "ring-2 ring-yellow-500/30 rounded-lg"
+                              : ""
+                          }
+                        >
+                          <ShiftCard
+                            {...shift}
+                            onShowInterest={handleShowInterest}
+                            onViewDetails={handleViewDetails}
+                            onNotify={handleNotify}
+                            onClone={handleClone}
+                            onQuickAssign={handleQuickAssign}
+                            isAdmin={true}
+                            isNotifying={notifyingShiftId === shift.id}
+                            showCheckbox={true}
+                            isSelected={selectedShiftIds.has(shift.id)}
+                            onSelectionChange={handleSelectionChange}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ));
+          })()}
         </div>
       ) : shifts.length === 0 ? (
         <div className="text-center py-16 border-2 border-dashed rounded-lg">
@@ -625,7 +731,8 @@ export default function Shifts() {
               setSearch("");
               setAreaFilter("all");
               setStatusFilter("All Status");
-              setSortBy("newest");
+              setSortBy("date-asc");
+              setStoredPrefs({ areaFilter: "all", statusFilter: "All Status", sortBy: "date-asc" });
             }}
           >
             Clear All Filters
