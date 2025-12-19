@@ -141,14 +141,18 @@ export function renderTemplate(template: string, context: TemplateContext): stri
     variables.shiftType = context.position.title; // Alias for position
   }
   
-  // Add appUrl - use environment variable or construct from common patterns
-  const appUrl = process.env.REPLIT_DEV_DOMAIN 
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.APP_URL || "";
+  // Add appUrl - first check database setting, then environment variables
+  // The appUrl will be populated by getRenderedTemplate which fetches from settings
+  let appUrl = context.custom?.appUrl || "";
+  if (!appUrl) {
+    appUrl = process.env.REPLIT_DEV_DOMAIN 
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : process.env.APP_URL || "";
+  }
   variables.appUrl = appUrl;
   
   // Add claimLink - direct link to claim shift via web
-  if (context.shift?.smsCode) {
+  if (context.shift?.smsCode && appUrl) {
     variables.claimLink = `${appUrl}/shift/${context.shift.smsCode}`;
   } else {
     variables.claimLink = "";
@@ -177,6 +181,7 @@ export function renderTemplate(template: string, context: TemplateContext): stri
 
 /**
  * Get template by category and render it with context
+ * Automatically fetches app_url from settings and adds to context
  */
 export async function getRenderedTemplate(
   category: TemplateCategory,
@@ -186,6 +191,13 @@ export async function getRenderedTemplate(
 
   if (!template) {
     return null;
+  }
+
+  // Fetch app_url setting and add to custom context
+  const appUrlSetting = await storage.getSetting("app_url");
+  if (appUrlSetting?.value) {
+    context.custom = context.custom || {};
+    context.custom.appUrl = appUrlSetting.value;
   }
 
   return renderTemplate(template.content, context);

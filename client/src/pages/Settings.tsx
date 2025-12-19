@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key, RefreshCw, Download, BookOpen } from "lucide-react";
+import { Bell, MessageSquare, Shield, User, MapPin, Plus, Pencil, Trash2, Loader2, Clock, Phone, Eye, EyeOff, CheckCircle2, XCircle, BarChart3, Send, AlertTriangle, FileText, Copy, RotateCcw, Info, Upload, Key, RefreshCw, Download, BookOpen, Globe } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Area, Position, Role, OrganizationSetting, SmsTemplate, ShiftTemplate } from "@shared/schema";
 import { Textarea } from "@/components/ui/textarea";
@@ -596,6 +596,7 @@ export default function Settings() {
 
   // Organization Settings
   const [urgentThreshold, setUrgentThreshold] = useState("48");
+  const [appUrl, setAppUrl] = useState("");
 
   // Locations Management
   const [locations, setLocations] = useState<string[]>([]);
@@ -1073,6 +1074,12 @@ export default function Settings() {
     const locationsSetting = settings.find(s => s.key === "shift_locations");
     if (locationsSetting && locationsSetting.value) {
       setLocations(locationsSetting.value.split(",").map((l: string) => l.trim()).filter((l: string) => l));
+    }
+    
+    // Load app URL for SMS links
+    const appUrlSetting = settings.find(s => s.key === "app_url");
+    if (appUrlSetting) {
+      setAppUrl(appUrlSetting.value || "");
     }
 
     // Load SMS settings
@@ -1742,6 +1749,46 @@ export default function Settings() {
                 >
                   {updateSettingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Save Threshold
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                <CardTitle>Application URL</CardTitle>
+              </div>
+              <CardDescription>Set your published app URL for SMS links (used in shift claim links)</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="app-url">Production URL</Label>
+                <Input
+                  id="app-url"
+                  type="url"
+                  placeholder="https://your-app.replit.app"
+                  value={appUrl}
+                  onChange={(e) => setAppUrl(e.target.value)}
+                  data-testid="input-app-url"
+                />
+                <p className="text-sm text-muted-foreground">
+                  This URL is used to generate claim links in SMS messages (e.g., {"{{claimLink}}"}). 
+                  Enter your published app URL without a trailing slash.
+                </p>
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  onClick={() => updateSettingMutation.mutate({
+                    key: "app_url",
+                    value: appUrl.replace(/\/$/, "") // Remove trailing slash
+                  })}
+                  disabled={updateSettingMutation.isPending}
+                  data-testid="button-save-app-url"
+                >
+                  {updateSettingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Save URL
                 </Button>
               </div>
             </CardContent>
