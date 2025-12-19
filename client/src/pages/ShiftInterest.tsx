@@ -389,13 +389,24 @@ export default function ShiftInterest() {
               </p>
             </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              data-testid="button-express-interest"
-            >
-              I'm Interested
-            </Button>
+            <div className="flex flex-col gap-3">
+              <Button
+                type="submit"
+                className="w-full"
+                data-testid="button-express-interest"
+              >
+                I'm Interested
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => window.close()}
+                data-testid="button-cancel"
+              >
+                Not Interested
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
