@@ -41,6 +41,8 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
+    { name: "appUrl", description: "Application URL for viewing shift details" },
+    { name: "claimLink", description: "Direct link to view shift details via web" },
   ],
   shift_reminder: [
     { name: "date", description: "Shift date" },
@@ -52,6 +54,8 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
+    { name: "appUrl", description: "Application URL for viewing shift details" },
+    { name: "claimLink", description: "Direct link to view shift details via web" },
   ],
   shift_interest: [
     { name: "date", description: "Shift date" },
@@ -62,6 +66,9 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "position", description: "Position title" },
     { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
+    { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
+    { name: "appUrl", description: "Application URL for viewing shift details" },
+    { name: "claimLink", description: "Direct link to view shift details via web" },
   ],
   shift_cancellation: [
     { name: "date", description: "Shift date" },
@@ -72,6 +79,8 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "position", description: "Position title" },
     { name: "shiftType", description: "Same as position - the type of shift (e.g., RN, CNA)" },
     { name: "employeeName", description: "Employee's name" },
+    { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
+    { name: "appUrl", description: "Application URL" },
   ],
   training_reminder: [
     { name: "trainingTitle", description: "Training session title" },
