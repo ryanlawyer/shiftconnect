@@ -422,9 +422,29 @@ export async function registerRoutes(
   });
 
   app.delete("/api/employees/:id", async (req, res) => {
-    const deleted = await storage.deleteEmployee(req.params.id);
-    if (!deleted) return res.status(404).json({ error: "Employee not found" });
-    res.status(204).send();
+    try {
+      const employee = await storage.getEmployee(req.params.id);
+      if (!employee) return res.status(404).json({ error: "Employee not found" });
+      
+      const deleted = await storage.deleteEmployee(req.params.id);
+      if (!deleted) return res.status(500).json({ error: "Failed to archive employee" });
+      
+      // Log the soft delete action
+      await logAuditEvent({
+        action: "employee_deleted" as any,
+        actor: req.user as any,
+        targetType: "employee" as any,
+        targetId: employee.id,
+        targetName: employee.name,
+        details: { softDelete: true },
+        ipAddress: getClientIp(req),
+      });
+      
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting employee:", error);
+      res.status(500).json({ error: "Failed to archive employee. Please try again." });
+    }
   });
 
   app.get("/api/employees/:id/areas", async (req, res) => {

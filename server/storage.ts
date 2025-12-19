@@ -946,7 +946,8 @@ export class MemStorage implements IStorage {
 
   // Employees
   async getEmployees(): Promise<Employee[]> {
-    return Array.from(this.employees.values());
+    // Exclude soft-deleted employees
+    return Array.from(this.employees.values()).filter(e => e.status !== 'deleted');
   }
 
   async getEmployee(id: string): Promise<Employee | undefined> {
@@ -981,11 +982,18 @@ export class MemStorage implements IStorage {
   }
 
   async deleteEmployee(id: string): Promise<boolean> {
-    // Also remove area assignments
-    Array.from(this.employeeAreas.values())
-      .filter(ea => ea.employeeId === id)
-      .forEach(ea => this.employeeAreas.delete(ea.id));
-    return this.employees.delete(id);
+    // Soft delete: set status to 'deleted' and disable web access
+    // Auth system checks employee status to prevent login for deleted employees
+    const employee = this.employees.get(id);
+    if (!employee) return false;
+    
+    this.employees.set(id, {
+      ...employee,
+      status: 'deleted',
+      webAccessEnabled: false
+    });
+    
+    return true;
   }
 
   // Employee-Area assignments

@@ -340,7 +340,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEmployees(): Promise<Employee[]> {
-    return db.select().from(employees);
+    // Exclude soft-deleted employees
+    return db.select().from(employees).where(
+      sql`${employees.status} != 'deleted' OR ${employees.status} IS NULL`
+    );
   }
 
   async getEmployee(id: string): Promise<Employee | undefined> {
@@ -359,9 +362,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteEmployee(id: string): Promise<boolean> {
-    await db.delete(employeeAreas).where(eq(employeeAreas.employeeId, id));
-    const result = await db.delete(employees).where(eq(employees.id, id));
-    return (result.rowCount ?? 0) > 0;
+    // Soft delete: set status to 'deleted' and disable web access
+    // Auth system checks employee status to prevent login for deleted employees
+    const result = await db.update(employees)
+      .set({ 
+        status: 'deleted',
+        webAccessEnabled: false 
+      })
+      .where(eq(employees.id, id))
+      .returning();
+    
+    return result.length > 0;
   }
 
   async getEmployeeAreas(employeeId: string): Promise<Area[]> {

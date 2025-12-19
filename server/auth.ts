@@ -50,9 +50,17 @@ export function setupAuth(app: Express) {
       const user = await storage.getUserByUsername(username);
       if (!user || !(await comparePasswords(password, user.password))) {
         return done(null, false);
-      } else {
-        return done(null, user);
       }
+      
+      // Check if linked employee is deleted (soft delete check)
+      if (user.employeeId) {
+        const employee = await storage.getEmployee(user.employeeId);
+        if (employee && employee.status === 'deleted') {
+          return done(null, false);
+        }
+      }
+      
+      return done(null, user);
     }),
   );
 
@@ -62,6 +70,14 @@ export function setupAuth(app: Express) {
       const user = await storage.getUser(id);
       if (!user) {
         return done(null, false);
+      }
+      
+      // Check if linked employee is deleted (invalidate existing sessions)
+      if (user.employeeId) {
+        const employee = await storage.getEmployee(user.employeeId);
+        if (employee && employee.status === 'deleted') {
+          return done(null, false);
+        }
       }
       
       // Get role permissions
