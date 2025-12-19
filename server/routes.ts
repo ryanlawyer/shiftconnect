@@ -689,7 +689,9 @@ export async function registerRoutes(
 
   // Shifts
   app.get("/api/shifts", async (req, res) => {
-    const shifts = await storage.getShifts();
+    // Allow management interface to request all shifts including past/expired ones
+    const includePast = req.query.includePast === "true";
+    const shifts = await storage.getShifts(includePast);
     // Include area info, interest count, and assigned employee
     const shiftsWithInfo = await Promise.all(
       shifts.map(async (shift) => {

@@ -41,7 +41,8 @@ Preferred communication style: Simple, everyday language.
 
 ### Feature Specifications
 - **Phone Number Handling**: Stores in E.164 format, displays as (555) 123-4567.
-- **Date Filtering**: Shifts API and SMS commands (STATUS, WITHDRAW) only show current/future shifts; uses SQL CURRENT_DATE for timezone safety in PostgreSQL.
+- **Date Filtering**: Shifts API and SMS commands (STATUS, WITHDRAW) only show current/future shifts by default; uses SQL CURRENT_DATE for timezone safety in PostgreSQL. Management web interface can view expired shifts via status filter.
+- **Shift Sorting**: Management interface supports sorting by Newest First, Oldest First, Date (Earliest), Date (Latest).
 - **SMS Agent (Future)**: AI-powered SMS agent using LLMs for natural language understanding, integrated with Role-Based Access Control (RBAC) aware guardrails. This includes an AI RBAC schema extension, context builder, data filtering layer, and conversation context management. Fallback to fixed commands if AI intent is unclear.
 - **Security Patterns**: Server-side permission validation for sensitive fields, logging of unauthorized access attempts.
 

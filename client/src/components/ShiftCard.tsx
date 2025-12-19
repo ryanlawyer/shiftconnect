@@ -25,6 +25,7 @@ export interface ShiftCardProps {
   requirements?: string | null;
   postedBy: string;
   postedAt: string;
+  createdAt?: string | Date;
   status: ShiftStatus;
   interestedCount?: number;
   assignedEmployee?: Employee | null;

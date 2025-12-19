@@ -31,6 +31,7 @@ export function transformShiftToCard(shift: ShiftWithDetails): ShiftCardProps {
     requirements: shift.requirements,
     postedBy: shift.postedByName,
     postedAt: formatRelativeTime(shift.createdAt),
+    createdAt: shift.createdAt,
     status: shift.status as "available" | "claimed" | "expired",
     interestedCount: shift.interestedCount,
     assignedEmployee: shift.assignedEmployee,

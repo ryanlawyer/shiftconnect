@@ -24,6 +24,12 @@ import type { Area, Employee } from "@shared/schema";
 import type { InterestedEmployee } from "@/components/ShiftDetailModal";
 
 const statuses = ["All Status", "Available", "Claimed", "Expired"];
+const sortOptions = [
+  { value: "newest", label: "Newest First" },
+  { value: "oldest", label: "Oldest First" },
+  { value: "date-asc", label: "Date (Earliest)" },
+  { value: "date-desc", label: "Date (Latest)" },
+];
 
 // Type for the detailed shift response from /api/shifts/:id
 interface ShiftDetailResponse {
@@ -51,6 +57,7 @@ export default function Shifts() {
   const [search, setSearch] = useState("");
   const [areaFilter, setAreaFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("All Status");
+  const [sortBy, setSortBy] = useState("newest");
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedShiftIds, setSelectedShiftIds] = useState<Set<string>>(new Set());
@@ -61,9 +68,18 @@ export default function Shifts() {
   // Subscribe to real-time shift updates
   useShiftWebSocket();
 
+  // Include past shifts when filtering for expired or viewing all statuses
+  const includePast = statusFilter === "Expired" || statusFilter === "All Status";
+
   // Fetch shifts and areas data
   const { data: shifts = [], isLoading: loadingShifts } = useQuery<ShiftWithDetails[]>({
-    queryKey: ["/api/shifts"],
+    queryKey: ["/api/shifts", { includePast }],
+    queryFn: async () => {
+      const url = includePast ? "/api/shifts?includePast=true" : "/api/shifts";
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch shifts");
+      return response.json();
+    },
   });
 
   const { data: areas = [], isLoading: loadingAreas } = useQuery<Area[]>({
@@ -83,9 +99,9 @@ export default function Shifts() {
     return transformShiftsToCards(shifts);
   }, [shifts]);
 
-  // Filter shifts based on search, area, status, and date
+  // Filter and sort shifts based on search, area, status, date, and sort order
   const filteredShifts = useMemo(() => {
-    return transformedShifts.filter((shift) => {
+    let result = transformedShifts.filter((shift) => {
       const areaName = shift.areaName || "";
       const matchesSearch = shift.position.toLowerCase().includes(search.toLowerCase()) ||
                             areaName.toLowerCase().includes(search.toLowerCase());
@@ -110,7 +126,25 @@ export default function Shifts() {
       
       return matchesSearch && matchesArea && matchesStatus && matchesDate;
     });
-  }, [transformedShifts, search, areaFilter, statusFilter, selectedDate]);
+
+    // Apply sorting
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "oldest":
+          return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        case "newest":
+          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        case "date-asc":
+          return a.date.localeCompare(b.date);
+        case "date-desc":
+          return b.date.localeCompare(a.date);
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [transformedShifts, search, areaFilter, statusFilter, selectedDate, sortBy]);
 
   const handleWeekChange = (direction: "prev" | "next") => {
     setWeekStart(prev => addWeeks(prev, direction === "next" ? 1 : -1));
@@ -494,6 +528,16 @@ export default function Shifts() {
             ))}
           </SelectContent>
         </Select>
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="w-[160px]" data-testid="select-sort-order">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {sortOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {selectedShiftIds.size > 0 && (
@@ -581,6 +625,7 @@ export default function Shifts() {
               setSearch("");
               setAreaFilter("all");
               setStatusFilter("All Status");
+              setSortBy("newest");
             }}
           >
             Clear All Filters
