@@ -216,18 +216,9 @@ export async function notifyNewShift(
   // Look up position for template
   const position = await storage.getPosition(shift.positionId);
   
-  // Try to get template, fall back to hardcoded message
-  const templateMessage = await getRenderedTemplate("shift_notification", {
-    shift,
-    area,
-    position: position ? { title: position.title } : undefined,
-  });
   const appUrl = process.env.REPLIT_DEV_DOMAIN 
     ? `https://${process.env.REPLIT_DEV_DOMAIN}`
     : process.env.APP_URL || "";
-  const message =
-    templateMessage ||
-    `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nCode: ${shift.smsCode}\n\nTap to claim: ${appUrl}/shift/${shift.smsCode}\n\nOr reply YES ${shift.smsCode}`;
 
   // Build status callback URL based on provider
   const statusCallback = webhookBaseUrl
@@ -236,6 +227,24 @@ export async function notifyNewShift(
 
   for (const employee of eligibleRecipients) {
     try {
+      // Render template with employee context for personalized claimLink with phone number
+      const templateMessage = await getRenderedTemplate("shift_notification", {
+        shift,
+        area,
+        position: position ? { title: position.title } : undefined,
+        employee,
+      });
+      
+      // Build personalized fallback message with employee's phone in link
+      const phoneDigits = employee.phone.replace(/\D/g, "");
+      const personalizedLink = phoneDigits 
+        ? `${appUrl}/shift/${shift.smsCode}?p=${phoneDigits}`
+        : `${appUrl}/shift/${shift.smsCode}`;
+      
+      const message =
+        templateMessage ||
+        `[ShiftConnect] New shift available!\n${formatShiftDetails(shift, area)}\nCode: ${shift.smsCode}\n\nTap to claim: ${personalizedLink}\n\nOr reply YES ${shift.smsCode}`;
+
       // Create message record
       const messageRecord = await storage.createMessage({
         employeeId: employee.id,
