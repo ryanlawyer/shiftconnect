@@ -15,6 +15,7 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
     { name: "appUrl", description: "Application URL for viewing shift details" },
+    { name: "claimLink", description: "Direct link to claim shift via web (e.g., https://yourapp.com/shift/ABC123)" },
   ],
   shift_repost: [
     { name: "date", description: "Shift date" },
@@ -28,6 +29,7 @@ export const TEMPLATE_VARIABLES: Record<string, Array<{ name: string; descriptio
     { name: "employeeName", description: "Employee's name" },
     { name: "smsCode", description: "Shift SMS code for replies (e.g., ABC123)" },
     { name: "appUrl", description: "Application URL for viewing shift details" },
+    { name: "claimLink", description: "Direct link to claim shift via web (e.g., https://yourapp.com/shift/ABC123)" },
   ],
   shift_confirmation: [
     { name: "date", description: "Shift date" },
@@ -144,6 +146,13 @@ export function renderTemplate(template: string, context: TemplateContext): stri
     ? `https://${process.env.REPLIT_DEV_DOMAIN}`
     : process.env.APP_URL || "";
   variables.appUrl = appUrl;
+  
+  // Add claimLink - direct link to claim shift via web
+  if (context.shift?.smsCode) {
+    variables.claimLink = `${appUrl}/shift/${context.shift.smsCode}`;
+  } else {
+    variables.claimLink = "";
+  }
 
   if (context.employee) {
     variables.employeeName = context.employee.name;
@@ -242,6 +251,9 @@ export function previewTemplate(template: string, category: TemplateCategory): s
       smsCode: "ABC123",
       bonusAmount: 50,
       createdAt: new Date(),
+      notifyAllAreas: false,
+      lastNotifiedAt: null,
+      notificationCount: 0,
     },
     employee: {
       id: "emp-sample",
