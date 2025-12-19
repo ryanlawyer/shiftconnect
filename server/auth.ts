@@ -47,16 +47,8 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
-      console.log(`Login attempt for username: ${username}`);
       const user = await storage.getUserByUsername(username);
-      if (!user) {
-        console.log(`Login failed: user not found for ${username}`);
-        return done(null, false);
-      }
-      
-      const passwordMatch = await comparePasswords(password, user.password);
-      if (!passwordMatch) {
-        console.log(`Login failed: password mismatch for ${username}`);
+      if (!user || !(await comparePasswords(password, user.password))) {
         return done(null, false);
       }
       
@@ -64,12 +56,10 @@ export function setupAuth(app: Express) {
       if (user.employeeId) {
         const employee = await storage.getEmployee(user.employeeId);
         if (employee && employee.status === 'deleted') {
-          console.log(`Login failed: employee deleted for ${username}`);
           return done(null, false);
         }
       }
       
-      console.log(`Login successful for ${username}`);
       return done(null, user);
     }),
   );
